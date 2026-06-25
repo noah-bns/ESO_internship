@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+
+# Environment
+.venv/
+venv/
+
+
+# Large data files - DO NOT COMMIT
+data/
+*.hdf5
+*.fits
+*.dat
+*.bin
+
+# Large results
+results/
+*.mp4
+*.avi
+
+# IDE
+.vscode/settings.json
+.DS_Store
+*.lock
+
+# Environment files
+full_freeze.txt

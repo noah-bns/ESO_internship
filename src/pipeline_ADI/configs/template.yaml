@@ -1,0 +1,108 @@
+# ============================================================================
+# Contrast Curve Pipeline Configuration
+# ============================================================================
+#
+# Notes:
+#   - All times are in seconds unless otherwise specified.
+#   - Fields marked OPTIONAL may be omitted.
+#   - If an OPTIONAL field is omitted, the pipeline should use the default
+#     behavior described in the comments.
+#
+
+# ============================================================================
+# Output Experiment
+# ============================================================================
+experiment:
+  name: "GHOST_no_coro"   # Name used in output folders and filenames.
+
+
+# ============================================================================
+# Algorithms to run
+# ============================================================================
+algorithms:                
+  CADI: true              # Bool: enable Classical ADI residuals
+  PCAD: true              # Bool: enable PCA-based ADI
+
+
+# ============================================================================
+# Input datasets
+# ============================================================================
+datasets:                               # Each enabled dataset will be processed independently.
+  
+  dataset_suffix:                       # Should be replaced by a name for the dataset (example: int)
+    
+    enabled: true                       # Whether to process this dataset.
+    science_file: "/path/to/stg2.npy"   # Path to input science cube (.npy)
+                                            # Expected shape:  (n_frames, ny, nx)
+    psf_file: "/path/to/psf.npy"        # Path to external mean PSF (.npy)
+                                            # Expected shape:   (ny, nx)
+                                            # OPTIONAL, if omitted:
+                                               #  PSF generated from n_psf first frames of science_file, based of the psf_dit 
+
+
+# ============================================================================
+# Instrument parameters (should be the same for all datasets)
+# ============================================================================
+
+instrument:
+  frame_rate: 0.0025        # Phase Screen frame rate, AO loop. Units: seconds 
+  dit_science: 0.004        # Science frame integration time. Units: seconds (0.004 = 4 ms)
+  dit_psf: 10.0             # PSF calibration integration time. Units: seconds
+  pixel_size: 0.005         # Pixel scale. Units: arcsec/pixel
+  radius_psf: 20            # Radius used when centering/extracting the PSF. Units: pixels
+  radius_sc: null           # OPTIONAL. Radius used when centering/extracting the science image. Units: pixels
+
+
+
+# ============================================================================
+# Fake planet experiment settings
+# ============================================================================
+contrast:
+  flux_ratio_mag: 16                    # Brightness of injected companions. Units: delta magnitude (Converted internally using: mag2flux_ratio())
+  num_fake_planets: 3                   # Number of fake planets injected per separation.
+  components: [5, 10, 20, 50, 75, 100]  # PCA component numbers to test. Only relevant for PCAD.
+
+  separation: 1.0         # Radial sampling interval. Units: multiples of FWHM, minimum 1 (2.0  -> every 2 FWHM)
+  max_separation: 0.8     # Maximum search radius. Units: fraction of image radius (0.8 = search to 80% of image radius from center)
+  
+  scaling_factor: 1.0     # Flux scaling factor. OPTIONAL (Default: 1.0)
+                          # Useful for:
+                          #   ND filter corrections
+                          #   throughput corrections
+  approx_svd_trunc: null  # Approximate SVD truncation rank. OPTIONAL, If omitted or null:  the pipeline computes a default value.
+  device: "cuda"          # Processing device. 'cpu' or 'cuda'
+
+  # Parallactic Angles
+  # Option 1:
+  #   Supply an angle file.
+
+  # Option 2:
+  #   Generate angles automatically using angle_start and angle_end.
+  
+  # If angle_file is provided, it takes precedence.
+  angle_file: "/path/to/parang.npy"   # Path to a file containing parallactic angles. Supported examples: .npy , .csv 
+                                      # OPTIONAL: If omitted: angles are generated using angle_start and angle_end.
+  angle_start: 0                      # Starting parallactic angle. Units: degrees. 
+                                      # OPTIONAL: Used only when angle_file is omitted.
+  angle_end: 30                       # Ending parallactic angle. Units: degrees. 
+                                      # OPTIONAL: Used only when angle_file is omitted.
+
+
+# ============================================================================
+# OPTIONAL Contrast curve calculation
+# ============================================================================
+curve:
+  enabled: true         # if not enabled, only the fake planet experiment is performed
+  photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
+                        # OPTIONAL, Default: AS
+  test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
+                        # OPTIONAL, Default: t-test
+
+  path: "results/contrast_curves"     # Root directory for outputs.
+                                      # OPTIONAL, Default: results/contrast_curves
+
+  save_csv: false                     # Save contrast curves as CSV files.
+                                      # OPTIONAL, Default: true
+
+  save_checkpoints: false             # Save checkpoint files generated by Applefy.
+                                      # OPTIONAL, Default: false
