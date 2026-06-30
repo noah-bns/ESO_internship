@@ -1,5 +1,5 @@
 # ============================================================================
-# Contrast Curve Pipeline Configuration
+# Contrast Curve Pipeline Configuration File Template
 # ============================================================================
 #
 # Notes:
@@ -50,29 +50,22 @@ instrument:
   dit_psf: 10.0             # PSF calibration integration time. Units: seconds
   pixel_size: 0.005         # Pixel scale. Units: arcsec/pixel
   radius_psf: 20            # Radius used when centering/extracting the PSF. Units: pixels
-  radius_sc: null           # OPTIONAL. Radius used when centering/extracting the science image. Units: pixels
+  radius_sc: None           # OPTIONAL. Radius used when centering/extracting the science image. Units: pixels
 
 
 
 # ============================================================================
 # Fake planet experiment settings
 # ============================================================================
-contrast:
-  flux_ratio_mag: 16                    # Brightness of injected companions. Units: delta magnitude (Converted internally using: mag2flux_ratio())
-  num_fake_planets: 3                   # Number of fake planets injected per separation.
-  components: [5, 10, 20, 50, 75, 100]  # PCA component numbers to test. Only relevant for PCAD.
+fake_planet:
+  path: "results/fake_planets"        # Root directory for checkpoints.
+                                      # OPTIONAL, Default: results/fake_planets
 
-  separation: 1.0         # Radial sampling interval. Units: multiples of FWHM, minimum 1 (2.0  -> every 2 FWHM)
-  max_separation: 0.8     # Maximum search radius. Units: fraction of image radius (0.8 = search to 80% of image radius from center)
-  
-  scaling_factor: 1.0     # Flux scaling factor. OPTIONAL (Default: 1.0)
-                          # Useful for:
-                          #   ND filter corrections
-                          #   throughput corrections
-  approx_svd_trunc: null  # Approximate SVD truncation rank. OPTIONAL, If omitted or null:  the pipeline computes a default value.
-  device: "cuda"          # Processing device. 'cpu' or 'cuda'
+  flux_ratio_mag: 16                  # Brightness of injected companions. Units: delta magnitude (Converted internally using: mag2flux_ratio())
+  num_fake_planets: 3                 # Number of fake planets injected per separation.
+  components: [5, 10, 20, 50, 75]     # PCA component numbers to test. Only relevant for PCAD.
 
-  # Parallactic Angles
+  # Parallactic Angles (in degrees)
   # Option 1:
   #   Supply an angle file.
 
@@ -80,29 +73,40 @@ contrast:
   #   Generate angles automatically using angle_start and angle_end.
   
   # If angle_file is provided, it takes precedence.
-  angle_file: "/path/to/parang.npy"   # Path to a file containing parallactic angles. Supported examples: .npy , .csv 
+
+  angle_file: "/path/to/parang.npy"   # Path to a file containing parallactic angles. Units: degrees. Supported examples: .npy , .csv 
                                       # OPTIONAL: If omitted: angles are generated using angle_start and angle_end.
   angle_start: 0                      # Starting parallactic angle. Units: degrees. 
                                       # OPTIONAL: Used only when angle_file is omitted.
   angle_end: 30                       # Ending parallactic angle. Units: degrees. 
                                       # OPTIONAL: Used only when angle_file is omitted.
 
+  #Optional parameters
+  max_separation: 0.8     # Maximum search radius. Units: fraction of image radius (0.8 = search to 80% of image radius from center)
+  device: "auto"          # Processing device. "auto" (GPU if available), 'cpu' or 'cuda'
+  pca_method: "auto"      # PCA method. Allowed values: "auto", "svd", "gram", or "lowrank"
+                          # OPTIONAL, Default: "auto" (pipeline chooses the best method based on input data size and device)  
+  approx_svd_trunc: None  # Approximate SVD truncation rank. OPTIONAL, If omitted or null:  the pipeline computes a default value.
+  
+
 
 # ============================================================================
 # OPTIONAL Contrast curve calculation
 # ============================================================================
-curve:
+curves:
+
   enabled: true         # if not enabled, only the fake planet experiment is performed
+  path: "results/contrast_curves"     # Root directory for output curves.
+                                      # OPTIONAL, Default: results/contrast_curves
   photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
                         # OPTIONAL, Default: AS
   test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
                         # OPTIONAL, Default: t-test
 
-  path: "results/contrast_curves"     # Root directory for outputs.
-                                      # OPTIONAL, Default: results/contrast_curves
-
-  save_csv: false                     # Save contrast curves as CSV files.
+  save_csv: false                     # Save contrast curves overall best as CSV files.
+                                      # OPTIONAL, Default: false
+  save_plots: true                    # Save contrast curves as plots.
                                       # OPTIONAL, Default: true
 
-  save_checkpoints: false             # Save checkpoint files generated by Applefy.
-                                      # OPTIONAL, Default: false
+
+

@@ -43,9 +43,9 @@ psf_int     = zoom_to_peak(psf_int, radius)
 psf_pred    = np.sum(sc_img_pred[:n_psf], axis = 0)
 psf_pred    = zoom_to_peak(psf_pred, radius)
 
-sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/5), 5, *sc_img_int.shape[1:]).sum(axis=1)
-sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/5), 5, *sc_img_pred.shape[1:]).sum(axis=1)
-dit_science    = dit_science*5
+#sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/5), 5, *sc_img_int.shape[1:]).sum(axis=1)
+#sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/5), 5, *sc_img_pred.shape[1:]).sum(axis=1)
+#dit_science    = dit_science*5
 
 # CREATE DATASETS
 datasets = {

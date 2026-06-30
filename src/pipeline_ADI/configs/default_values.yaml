@@ -1,0 +1,71 @@
+# ============================================================================
+# Contrast Curve Pipeline Configuration Default Values
+# ============================================================================
+#
+# Notes:
+#   - All times are in seconds unless otherwise specified.
+#   - If a field is omitted in the configuration file, the pipeline should use the default
+#     behavior values expressed in this file.
+#   - If a non-optional field does not appear here but does in the template configuration file,
+#     the user MUST provide a value in the configuration file.
+#
+
+
+experiment:
+  name: "default_experiment"          # Default experiment name
+
+
+algorithms:                
+  CADI: true                          # Classical ADI
+  PCAD: true                          # PCA-based ADI
+
+
+instrument:
+  radius_psf: 20                      # Radius used when centering/extracting the PSF. Units: pixels
+  radius_sc: None                     # Radius used when centering/extracting the science image. Units: pixels
+
+
+fake_planet:
+  path: "results/fake_planets"        # Root directory for checkpoints.
+  flux_ratio_mag: 16                  # Brightness of injected companions. Units: delta magnitude (Converted internally using: mag2flux_ratio())
+  num_fake_planets: 3                 # Number of fake planets injected per separation.
+  components: [10, 20, 50, 75, 100]   # PCA component numbers to test. Only relevant for PCAD.
+
+  # Parallactic Angles (in degrees)
+  angle_start: 0                      # Starting parallactic angle. Units: degrees. 
+  angle_end: 30                       # Ending parallactic angle. Units: degrees. 
+  
+  #Optional parameters
+  separation: 1.0                     # Separation step in FWHM units
+  max_separation: 1.0                 # Maximum search radius. Units: fraction of image radius 
+  scaling_factor: 1.0                 # Flux scaling factor. 
+  device: "auto"                      # Processing device. "auto" (GPU if available), 'cpu' or 'cuda'
+  pca_method: "auto"                  # PCA method. Allowed values: "auto", "svd", "gram", or "lowrank"
+  oversample: 5                       # Extra samples for lowrank method (higher = more accurate, slower)
+  niter: 2                            # Power iterations for lowrank method (higher = more accurate, slower)
+  gram_threshold: 0.5                 # Ratio threshold: switches from SVD to Gram when n_samples/n_features < this
+  approx_svd_trunc: None              # Approximate SVD truncation rank (-1 for full SVD)
+  
+  # Reproducibility
+  random_state: null                  # Leave null for different results each run
+
+  # Derotation & Combination
+  subsample_rotation_grid: 1          # Subsampling factor for field rotation model
+  combine: "mean"                     # How to combine derotated frames from all stacks
+
+  # Precision and numerical stability
+  dtype: "float32"                    # Precision: "float32" (faster, GPU-friendly) or "float64" (higher precision) 
+  eps: null                           # Set to small value (e.g., 1e-8) if you encounter numerical issues
+
+
+curves:
+  enabled: true                       # if not enabled, only the fake planet experiment is performed
+  path: "results/contrast_curves"     # Root directory for output curves.
+  photometry: "AS"                    # Aperture photometry mode. Allowed values depend on implementation.
+  test: "t-test"                      # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
+  save_csv: false                     # Save contrast curves overall best as CSV files.
+  save_plots: false                   # Save contrast curves as plots.
+                            
+
+
+

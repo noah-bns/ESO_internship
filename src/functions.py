@@ -1,5 +1,7 @@
 
+from fours.utils import pca
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from pathlib import Path
@@ -8,8 +10,11 @@ import os
 from multiprocessing import cpu_count
 from scipy import interpolate
 import importlib
+import time
+import gc
 
 #images
+mpl.rcParams['hatch.linewidth'] = 0.5  # previous pdf hatch linewidth
 import torch
 import imageio.v2 as imageio
 from astropy.io import fits
@@ -33,7 +38,7 @@ from applefy.statistics import TTest, gaussian_sigma_2_fpf, \
 import fours
 importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU, PCADataReductionGPU, CADIDataReduction
-
+from fours.models.rotation import FieldRotationModel
 
 
 
@@ -790,16 +795,10 @@ def create_pca_gif(
 
 def comparison(curves1, errs1, curves2, errs2,
                title=None,
-               x_axis=None,
                cmap="winter"):
 
 
     delta = curves1 - curves2
-
-    if x_axis:
-        x = delta.reset_index(level=0).index * x_axis
-    else:
-        x = delta.reset_index(level=0).index
 
     fig, ax = plt.subplots(figsize=(12, 8))
 
@@ -861,25 +860,6 @@ def comparison(curves1, errs1, curves2, errs2,
             zorder=11
         )
 
-        # ax.scatter(
-        #     x_local, 
-        #     (e1.values + e2.values),
-        #     color= 'red' if col =='cADI' else colors[i],
-        #     s=20,
-        #     zorder=9
-        # )
-
-        # ax.scatter(
-        #     x_local, 
-        #      - (e1.values + e2.values),
-        #     color='red' if col =='cADI' else colors[i],
-        #     s=20,
-        #     zorder=9
-        # )
-
-
-
-            
         
     ax.axhline(0, color="black", ls="--", linewidth=0.4)
     ax.set_yscale("symlog", linthresh=1e-6)
@@ -890,7 +870,6 @@ def comparison(curves1, errs1, curves2, errs2,
     if title:
         ax.set_title(title)
     
-
     component_handles, component_labels = ax.get_legend_handles_labels()
 
     status_handles = [
@@ -911,3 +890,314 @@ def comparison(curves1, errs1, curves2, errs2,
     )
 
     return fig, ax
+
+
+def _get_pca_fitter(
+    pca_method: str,
+    n_components: int,
+    n_samples: int,
+    n_features: int,
+    gram_threshold: float = 0.5,
+    oversample: int = 5,
+    niter: int = 2,
+    eps: float | None = None,
+) -> callable:
+    """
+    Select and return the appropriate PCA fitting function based on method and data shape.
+    
+    Returns a callable that takes (X) and returns (components, singular_values).
+    """
+    
+    # Auto-select method if needed
+    if pca_method == "auto":
+        if n_components >= 0.8 * min(n_samples, n_features):
+            method = "svd"
+        elif n_samples <= gram_threshold * n_features:
+            method = "gram"
+        else:
+            method = "lowrank"
+    else:
+        method = pca_method
+    
+    if method == "svd":
+        def fitter(X: torch.Tensor) -> torch.Tensor:
+            """Exact reduced SVD."""
+            _, S, Vh = torch.linalg.svd(X, full_matrices=False)
+            components = Vh[:n_components]
+            #singular_values = S[:n_components]
+            return components #, singular_values
+        
+        return fitter, method
+    
+    elif method == "gram":
+        def fitter(X: torch.Tensor) -> torch.Tensor:
+            """Exact PCA via sample Gram matrix."""
+            eps_val = eps if eps is not None else float(torch.finfo(X.dtype).eps)
+            
+            C = X @ X.T  # (n_samples, n_samples)
+            evals, U = torch.linalg.eigh(C)
+            
+            # Sort by largest eigenvalues
+            idx = torch.argsort(evals, descending=True)
+            evals = evals[idx]
+            U = U[:, idx]
+            
+            evals = evals[:n_components]
+            U = U[:, :n_components]
+            
+            singular_values = torch.sqrt(torch.clamp(evals, min=0.0))
+            
+            # Filter out invalid singular values
+            valid = singular_values > eps_val
+            if not torch.any(valid):
+                raise RuntimeError("All singular values are numerically zero.")
+            
+            U_valid = U[:, valid]
+            S_valid = singular_values[valid]
+            
+            # Compute right singular vectors: V = X.T @ U @ diag(1/S)
+            V = X.T @ (U_valid / S_valid)
+            
+            # Improve numerical orthogonality
+            V, _ = torch.linalg.qr(V, mode="reduced")
+            
+            components = V[:, :n_components].T
+            
+            # Pad if needed to maintain consistent shapes
+            if components.shape[0] < n_components:
+                missing = n_components - components.shape[0]
+                pad_components = torch.zeros(
+                    missing,
+                    X.shape[1],
+                    device=X.device,
+                    dtype=X.dtype,
+                )
+                components = torch.cat([components, pad_components], dim=0)
+                
+            #     pad_singular_values = torch.zeros(
+            #         missing,
+            #         device=X.device,
+            #         dtype=X.dtype,
+            #     )
+            #     singular_values = torch.cat([S_valid, pad_singular_values], dim=0)
+            # else:
+            #     singular_values = singular_values[:n_components]
+            
+            return components #, singular_values
+        
+        return fitter, method
+    
+    elif method == "lowrank":
+        def fitter(X: torch.Tensor) -> torch.Tensor:
+            """Randomized approximate low-rank PCA."""
+            q = min(
+                n_components + oversample,
+                min(X.shape),
+            )
+            
+            _, S, V = torch.pca_lowrank(
+                X,
+                q=q,
+                center=False,
+                niter=niter,
+            )
+            
+            components = V[:, :n_components].T
+            #singular_values = S[:n_components]
+            return components #, singular_values
+        
+        return fitter, method
+    
+    else:
+        raise ValueError(f"Invalid PCA method: {pca_method}")
+    
+
+
+def pca_psf_subtraction_gpu(
+        images: np.ndarray,
+        angles: np.ndarray,
+        pca_numbers: np.ndarray,
+        device: str = "auto",
+        pca_method: str = "auto",
+        oversample: int = 5,
+        niter: int = 2,
+        gram_threshold: float = 0.5,
+        random_state: int | None = None,
+        eps: float | None = None,
+        subsample_rotation_grid: int = 1,
+        verbose: bool = False,
+        combine: str = "mean",
+        dtype: torch.dtype = torch.float32,
+) -> np.ndarray:
+    """
+    PCA-based PSF subtraction using PCATorch.
+    
+    Parameters
+    ----------
+    images : np.ndarray
+        Image cube with shape (n_frames, height, width)
+    angles : np.ndarray
+        Parallactic angles with shape (n_frames,)
+    pca_numbers : np.ndarray
+        PCA component numbers to evaluate
+    pca_method : str
+        PCA method: "auto", "svd", "gram", or "lowrank"
+    """
+
+    if device == "auto":
+        device = ("cuda" if torch.cuda.is_available() else "cpu")
+
+    pca_numbers = np.asarray(pca_numbers, dtype=int)
+
+    if pca_numbers.ndim != 1:
+        raise ValueError(f"Expected pca_numbers to be 1D, got {pca_numbers.shape}.")
+
+    if np.any(pca_numbers < 1):
+        raise ValueError("All PCA numbers should be >= 1.")
+    
+
+    with torch.no_grad():
+        t0 = time.perf_counter()
+
+        # 1.) Convert images to torch tensor
+        im_shape = images.shape
+        #images_torch = torch.from_numpy(images).to(device)
+        n_frames, height, width = im_shape
+        images_torch = torch.as_tensor(images, device=device, dtype=dtype)
+
+        t1 = time.perf_counter()
+        print(f"[Timing] Convert to tensor: {t1 - t0:.6f}s")
+
+        # 2.) remove the mean as needed for PCA
+        images_torch = images_torch - images_torch.mean(dim=0)
+
+        # 3.) reshape images to fit for PCA
+        #images_flat = images_torch.view(im_shape[0], im_shape[1] * im_shape[2])
+        images_flat = images_torch.reshape(n_frames, height * width)
+        
+        # 4.) Fit PCA using PCATorch
+        if verbose:
+            print(f"Fit PCA ({pca_method}) ...", end="")
+
+        
+        #### 
+        # based off https://github.com/markusbonse/near_processing/blob/main/near_processing/utils/pca.py#L11 PCATorch class
+        ####
+
+        # pca = PCATorch(
+        #     n_components=max_components,
+        #     method=pca_method,
+        #     center=True,  # Remove mean
+        #     device=device,
+        #     dtype=images_torch.dtype,
+        #     oversample=oversample,
+        #     niter=niter,
+        #     gram_threshold=gram_threshold,
+        #     random_state=random_state,
+        #     eps=eps,
+        # )
+        
+        # pca.fit(images_flat)
+
+        # Get the appropriate PCA fitter
+
+        max_components = int(np.max(pca_numbers))
+        n_samples, n_features = images_flat.shape
+        max_rank = min(n_samples, n_features)
+
+        if max_components > max_rank:
+            raise ValueError(
+                f"n_components={max_components} is larger than "
+                f"min(n_samples, n_features)={max_rank}."
+            )
+
+        if random_state is not None:
+            torch.manual_seed(random_state)
+
+        pca_fitter, method_used = _get_pca_fitter(
+            pca_method=pca_method,
+            n_components=max_components,
+            n_samples=n_frames,
+            n_features=height * width,
+            gram_threshold=gram_threshold,
+            oversample=oversample,
+            niter=niter,
+            eps=eps,
+        )
+
+        # Fit PCA once
+        components = pca_fitter(images_flat)
+
+        if verbose:
+            print(f"[DONE] (method: {method_used})")
+
+        t2 = time.perf_counter()
+        print(f"[Timing] Compute PCA Basis: {t2 - t1:.6f}s")
+
+        # 5.) Build rotation model
+        rotation_model = FieldRotationModel(
+            all_angles=angles,
+            input_size=im_shape[1],
+            subsample=subsample_rotation_grid,
+            inverse=False,
+            register_grid=True
+        ).to(device)
+
+        t3 = time.perf_counter()
+        print(f"[Timing] Field rotation: {t3 - t2:.6f}s")
+
+        # 6.) Compute PCA residuals for all given PCA numbers
+        pca_residuals = []
+        if verbose:
+            print("Compute PCA residuals ...", end="")
+
+        for pca_number in pca_numbers:
+            pca_number = int(pca_number)
+
+
+            # Project onto PCA components
+            pca_scores = images_flat @ components.T  # shape: (n_frames, pca_number)
+            
+            # Reconstruct noise model
+            noise_estimate = pca_scores @ components  # shape: (n_frames, n_features)
+            
+            # Compute residuals
+            residual = images_flat - noise_estimate
+            residual_sequence = residual.view(im_shape[0], im_shape[1], im_shape[2])
+            del residual, noise_estimate, pca_scores
+
+            # Subtract temporal median if not using mean combine
+            if combine != "mean":
+                residual_sequence = residual_sequence - torch.median(residual_sequence, dim=0)[0]
+
+            # Derotate frames
+            rotated_frames = rotation_model(
+                residual_sequence.unsqueeze(1).float(),
+                parang_idx=torch.arange(len(residual_sequence), device=device)
+            ).squeeze(1)
+            del residual_sequence
+
+            # Combine derotated frames
+            if combine == "mean":
+                residual_final = torch.mean(rotated_frames, dim=0).cpu().numpy()
+            elif combine == "median":
+                residual_final = torch.median(rotated_frames, dim=0)[0].cpu().numpy()
+            else:
+                raise ValueError(f"Invalid combine method: {combine}")
+            
+            pca_residuals.append(residual_final)
+            del rotated_frames, residual_final
+
+            if verbose:
+                print("[DONE]")
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        t4 = time.perf_counter()
+        print(f"[Timing] PCA Residuals: {t4 - t3:.6f}s")
+        print(f"Allocated: {torch.cuda.memory_allocated()/1024**3:.3f}GB")
+        print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
+
+        return np.array(pca_residuals)
