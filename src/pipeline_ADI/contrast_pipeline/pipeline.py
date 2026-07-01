@@ -2,7 +2,7 @@ from pathlib import Path
 import yaml
 import numpy as np
 import pandas as pd
-
+import shutil
 
 import importlib
 import src.pipeline_ADI.contrast_pipeline.functions_ADI as functions_ADI
@@ -230,6 +230,17 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
     inst = config["instrument"]
     fp = config["fake_planet"]
     crv = config["curves"]
+    flux_ratio = mag2flux_ratio(fp['flux_ratio_mag'])
+
+    algorithms = {
+        k: k
+        for k, enabled in config["algorithms"].items()
+        if enabled
+    }
+
+    if not algorithms:
+        raise ValueError("No algorithms enabled in configuration.")
+
 
     datasets = {}
 
@@ -252,24 +263,9 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
     if not datasets:
         raise ValueError("No datasets enabled in configuration.")
     
-    algorithms = {
-        k: k
-        for k, enabled in config["algorithms"].items()
-        if enabled
-    }
-    if not algorithms:
-        raise ValueError("No algorithms enabled in configuration.")
-
-
-    flux_ratio = mag2flux_ratio(
-        fp["flux_ratio_mag"]
-    )
 
     # Store all contrast curves
     all_curves = {}
-
-
-    for dataset_name, dataset in datasets.items():
 
     # Process each dataset with each algorithm
     for dataset_name, dataset in datasets.items():
@@ -290,6 +286,20 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
 
         angles = np.deg2rad(angles)
 
+        # Calculate separation range
+        center_coords = center_subpixel(dataset["sci_img"][0])
+        max_sep_pixels = round(center_coords[0] * fp["max_separation"])
+        
+        seps = np.arange(
+            0,
+            max_sep_pixels,
+            dataset["fwhm"] * fp["separation"]
+        )[1:]
+    
+        # Run fake planet experiment
+        print(f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}...")
+        
+        
         for algo_name in algorithms:
 
             print(f"\nProcessing {dataset_name} with {algo_name}...")
@@ -300,6 +310,11 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
                 f"{config['experiment']['name']}"
                 f"_{dataset_name}_{algo_name}"
             )
+
+            # Remove existing directory and all its contents
+            if output_path.exists():
+                shutil.rmtree(output_path)
+                print(f"Removed existing directory to avoid overwrites: {output_path}.")
 
             output_path.mkdir(
                 parents=True,
@@ -317,39 +332,47 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
                 checkpoint_dir=output_path
             )
 
-            # Calculate separation range
-            center_coords = center_subpixel(dataset["sci_img"][0])
-            max_sep_pixels = round(center_coords[0] * fp["max_separation"])
-            
-            seps = np.arange(
-                0,
-                max_sep_pixels,
-                dataset["fwhm"] * fp["separation"]
-            )[1:]
 
-            # Run fake planet experiment
-            print(f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}...")
-            contrast_instance = fake_planet_experiment(
-                contrast_instance,
-                flux_ratio,
-                fp["num_fake_planets"],
-                fp["components"],
-                version=algo_name,
-                separations=seps,
-                approx_svd=fp["approx_svd_trunc"],
-                device=fp["device"],
-                device=fp["device"],
-                pca_method=fp["pca_method"],
-                oversample=fp["oversample"],
-                niter=fp["niter"],
-                gram_threshold=fp["gram_threshold"],
-                random_state=fp["random_state"],
-                dtype=fp["dtype"],
-                eps=fp["eps"],
-                subsample_rotation_grid=fp["subsample_rotation_grid"],
-                combine=fp["combine"],
-            )
+            contrast_instance.design_fake_planet_experiments(
+                flux_ratios= flux_ratio,
+                num_planets=fp['num_fake_planets'],
+                separations = seps,
+                overwrite=True,
+                )
 
+            num_parallel = cpu_count()//2
+
+            if algo_name == 'PCAD':
+                algorithm_function = PCADataReductionGPU(
+                    pca_numbers=fp['components'],
+                    device=fp.get('device', 'auto'),
+                    pca_method=fp.get('pca_method', 'auto'),
+                    oversample=fp.get('oversample', 5),
+                    niter=fp.get('niter', 2),
+                    gram_threshold=fp.get('gram_threshold', 0.5),
+                    random_state=fp.get('random_state', None),
+                    eps=fp.get('eps', None),
+                    approx_svd_trunc=fp.get('approx_svd_trunc', None),
+                    subsample_rotation_grid=fp.get('subsample_rotation_grid', 1),
+                    combine=fp.get('combine', 'mean'),
+                )
+
+            if algo_name == 'CADI':
+                algorithm_function = CADIDataReductionGPU(
+                    device = fp.get('device', 'auto')
+                        )
+                
+            try:
+                contrast_instance.run_fake_planet_experiments(
+                    algorithm_function=algorithm_function,
+                    num_parallel=num_parallel)
+            except:
+                # can fail in multiprocessing, depending on whether optional dependencies are installed or not
+                num_parallel=1
+                contrast_instance.run_fake_planet_experiments(
+                    algorithm_function=algorithm_function,
+                    num_parallel=num_parallel)
+                
 
             # Compute contrast curves if enabled
             if crv["enabled"]:
@@ -386,6 +409,7 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
                     _save_curves_plot(curves, curves_output_path, dataset_name, algo_name)
 
     return all_curves if all_curves else None
+
 
 def _save_curves_csv(curves, output_path, dataset_name, algo_name):
     """
