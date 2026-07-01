@@ -54,7 +54,7 @@ fake_planet:
   combine: "mean"                     # How to combine derotated frames from all stacks
 
   # Precision and numerical stability
-  dtype: "float32"                    # Precision: "float32" (faster, GPU-friendly) or "float64" (higher precision) 
+  #dtype: "float32"                    # Precision: "float32" (faster, GPU-friendly) or "float64" (higher precision) 
   eps: null                           # Set to small value (e.g., 1e-8) if you encounter numerical issues
 
 

@@ -8,6 +8,7 @@ from multiprocessing import cpu_count
 from scipy import interpolate
 import importlib
 
+
 #images
 import torch
 import imageio.v2 as imageio
@@ -29,10 +30,8 @@ from applefy.statistics import TTest, gaussian_sigma_2_fpf, \
 
 import fours
 importlib.reload(fours)
-from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU, PCADataReductionGPU
-
-
-
+from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
+from .pca_utils import PCADataReductionGPU
 
 
 
@@ -77,39 +76,33 @@ def calculate_fwhm(
 
 
 def fake_planet_experiment(
-        contrast_instance, 
-        flux_ratio, 
-        num_fake_planets, 
-        components,
-        version = 'PCAD',
-        separations = None,
-        approx_svd = -1,
-        device = 'cpu'
-        ):
+    contrast_instance,
+    config: dict,
+    version: str,
+    separations: np.ndarray
+) -> object:
     """
-    Run a fake planet injection and recovery experiment following the
-    Appleby tutorial workflow.
-    see: https://applefy.readthedocs.io/en/latest/02_user_documentation/01_contrast_curves.html
-
-    The function first generates synthetic companions with the specified
-    flux ratio, then processes the data using a multi-component PCA-based
-    PSF subtraction algorithm (with PynPoint). Parallel execution is attempted by default;
-    if multiprocessing fails (e.g., due to optional dependency issues),
-    the experiment is rerun in serial mode.
-
+    Run fake planet injection experiment with config-driven parameters.
+    
     Parameters
     ----------
-    contrast_instance : object
-        Contrast analysis instance containing the dataset and experiment
-        configuration.
-    flux_ratio : float or array-like
-        Flux ratio(s) used for the injected fake planets.
-    num_fake_planets : int
-        Number of fake planets to inject.
-    components : int or list[int]
-        Number of PCA components used in the
-        ``MultiComponentPCAPynPoint`` algorithm.
+    contrast_instance : Contrast
+        Contrast analysis instance.
+    config : dict
+        Merged configuration dictionary (from YAML + defaults).
+    version : str
+        Algorithm version ('PCAD', 'CADI', etc.).
+    separations : np.ndarray
+        Separation values in pixels.
+
+    Returns
+    -------
+    Contrast
+        Updated contrast instance.
     """
+
+    flux_ratio = mag2flux_ratio(config['fake_planet']['flux_ratio_mag'])        
+    num_fake_planets = config['fake_planet']['num_fake_planets']    
 
     contrast_instance.design_fake_planet_experiments(
         flux_ratios=flux_ratio,
@@ -124,12 +117,28 @@ def fake_planet_experiment(
      #   num_pcas=components,
       #  scratch_dir=contrast_instance.scratch_dir,
        # num_cpus_pynpoint=1)
+    # if version == 'PCAD':
+    #     algorithm_function = PCADataReductionGPU(
+    #             pca_numbers = components,
+    #             approx_svd = approx_svd, # truncated for large tensor calculations 
+    #             device = device
+    #             )
     if version == 'PCAD':
         algorithm_function = PCADataReductionGPU(
-                pca_numbers = components,
-                approx_svd = approx_svd, # truncated for large tensor calculations 
-                device = device
-                )
+            pca_numbers=components,
+            device=device,
+            pca_method=config['fake_planet'].get('pca_method', 'auto'),
+            oversample=config['fake_planet'].get('oversample', 5),
+            niter=config['fake_planet'].get('niter', 2),
+            gram_threshold=config['fake_planet'].get('gram_threshold', 0.5),
+            random_state=config['fake_planet'].get('random_state'),
+            eps=config['fake_planet'].get('eps'),
+            approx_svd_trunc=config['fake_planet'].get('approx_svd_trunc'),
+            subsample_rotation_grid=config['fake_planet'].get('subsample_rotation_grid', 1),
+            combine=config['fake_planet'].get('combine', 'mean'),
+            verbose=verbose,
+        )
+
     if version == 'CADI':
         algorithm_function = CADIDataReductionGPU(
             device = device
