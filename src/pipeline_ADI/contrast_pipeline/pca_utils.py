@@ -447,7 +447,7 @@ class PCADataReductionGPU(DataReductionInterface):
                 "_components" for num_pcas in self.pca_numbers]
 
         return keys
-
+    
     def __call__(
             self,
             stack_with_fake_planet: np.ndarray,

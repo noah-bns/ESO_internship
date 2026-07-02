@@ -230,7 +230,7 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
     inst = config["instrument"]
     fp = config["fake_planet"]
     crv = config["curves"]
-    flux_ratio = mag2flux_ratio(fp['flux_ratio_mag'])
+    
 
     algorithms = {
         k: k
@@ -306,107 +306,55 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
 
             output_path = (
                 root_dir /
+                Path(
                 f"{fp["path"]}/"
                 f"{config['experiment']['name']}"
                 f"_{dataset_name}_{algo_name}"
-            )
+            ))
 
-            # Remove existing directory and all its contents
-            if output_path.exists():
-                shutil.rmtree(output_path)
-                print(f"Removed existing directory to avoid overwrites: {output_path}.")
-
-            output_path.mkdir(
-                parents=True,
-                exist_ok=True
-            )
-
-            contrast_instance = Contrast(
-                science_sequence=dataset["sci_img"],
-                psf_template=dataset["psf"],
-                parang_rad=angles,
-                psf_fwhm_radius=dataset["fwhm"] / 2,
-                dit_psf_template=dataset["dit_psf"],
-                dit_science=dataset["dit_science"],
-                scaling_factor=fp["scaling_factor"],
-                checkpoint_dir=output_path
-            )
-
-
-            contrast_instance.design_fake_planet_experiments(
-                flux_ratios= flux_ratio,
-                num_planets=fp['num_fake_planets'],
-                separations = seps,
-                overwrite=True,
-                )
-
-            num_parallel = cpu_count()//2
-
-            if algo_name == 'PCAD':
-                algorithm_function = PCADataReductionGPU(
-                    pca_numbers=fp['components'],
-                    device=fp.get('device', 'auto'),
-                    pca_method=fp.get('pca_method', 'auto'),
-                    oversample=fp.get('oversample', 5),
-                    niter=fp.get('niter', 2),
-                    gram_threshold=fp.get('gram_threshold', 0.5),
-                    random_state=fp.get('random_state', None),
-                    eps=fp.get('eps', None),
-                    approx_svd_trunc=fp.get('approx_svd_trunc', None),
-                    subsample_rotation_grid=fp.get('subsample_rotation_grid', 1),
-                    combine=fp.get('combine', 'mean'),
-                )
-
-            if algo_name == 'CADI':
-                algorithm_function = CADIDataReductionGPU(
-                    device = fp.get('device', 'auto')
-                        )
-                
-            try:
-                contrast_instance.run_fake_planet_experiments(
-                    algorithm_function=algorithm_function,
-                    num_parallel=num_parallel)
-            except:
-                # can fail in multiprocessing, depending on whether optional dependencies are installed or not
-                num_parallel=1
-                contrast_instance.run_fake_planet_experiments(
-                    algorithm_function=algorithm_function,
-                    num_parallel=num_parallel)
-                
-
+            contrast_instance = fake_planet_experiment(
+                    output_path = output_path,
+                    dataset = dataset,
+                    fp_config = fp,
+                    separations = seps,
+                    algo_name = algo_name,
+                    angles = angles
+                    )
+            
             # Compute contrast curves if enabled
-            if crv["enabled"]:
+            # if crv["enabled"]:
                 
-                print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
+            #     print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
                 
-                curves_output_path = (
-                    root_dir /
-                    f"{crv['path']}"
-                    f"/{config['experiment']['name']}"
-                    f"_{dataset_name}_{algo_name}"
-                )
+            #     curves_output_path = (
+            #         root_dir /
+            #         Path(f"{crv['path']}"
+            #         f"/{config['experiment']['name']}"
+            #         f"_{dataset_name}_{algo_name}"
+            #         )
+            #     )
                 
-                curves_output_path.mkdir(
-                    parents=True,
-                    exist_ok=True
-                )
+            #     curves_output_path.mkdir(
+            #         parents=True,
+            #         exist_ok=True
+            #     )
 
-                curves = compute_contrast_curves(
-                    contrast_instance,
-                    dataset["fwhm"],
-                    pixel_scale=inst["pixel_size"],
-                    photometry=crv["photometry"],
-                    test=crv["test"]
-                )
+            #     curves = compute_contrast_curves(
+            #         contrast_instance,
+            #         dataset["fwhm"],
+            #         pixel_scale=inst["pixel_size"],
+            #         photometry=crv["photometry"],
+            #         test=crv["test"]
+            #     )
 
-                all_curves[(dataset_name, algo_name)] = curves
+            #     all_curves[(dataset_name, algo_name)] = curves
                 
-                # Save results
-                if crv["save_csv"]:
-                    _save_curves_csv(curves, curves_output_path, dataset_name, algo_name)
+            #     # Save results
+            #     if crv["save_csv"]:
+            #         _save_curves_csv(curves, curves_output_path, dataset_name, algo_name)
                 
-                if crv["save_plots"]:
-                    _save_curves_plot(curves, curves_output_path, dataset_name, algo_name)
+            #     if crv["save_plots"]:
+            #         _save_curves_plot(curves, curves_output_path, dataset_name, algo_name)
 
     return all_curves if all_curves else None
 

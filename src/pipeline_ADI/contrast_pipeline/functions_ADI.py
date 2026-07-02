@@ -7,7 +7,9 @@ import os
 from multiprocessing import cpu_count
 from scipy import interpolate
 import importlib
-
+import shutil
+from typing import Tuple, Callable, Optional
+from typing import List, Dict, Union
 
 #images
 import torch
@@ -32,7 +34,7 @@ import fours
 importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
-
+from applefy.detections.contrast import Contrast
 
 
 def zoom_to_peak(
@@ -76,10 +78,12 @@ def calculate_fwhm(
 
 
 def fake_planet_experiment(
-    contrast_instance,
-    config: dict,
-    version: str,
-    separations: np.ndarray
+    output_path: Path,
+    dataset: dict,
+    fp_config: dict,
+    separations: np.ndarray,
+    algo_name: str,
+    angles: np.ndarray,
 ) -> object:
     """
     Run fake planet injection experiment with config-driven parameters.
@@ -88,12 +92,16 @@ def fake_planet_experiment(
     ----------
     contrast_instance : Contrast
         Contrast analysis instance.
-    config : dict
-        Merged configuration dictionary (from YAML + defaults).
-    version : str
-        Algorithm version ('PCAD', 'CADI', etc.).
+    dataset : dict
+        Processed dataset dictionary.
+    fp_config : dict
+        Fake planet configuration dictionary.
     separations : np.ndarray
         Separation values in pixels.
+    algo_name : str
+        Algorithm version ('PCAD', 'CADI', etc.).
+    angles : np.ndarray
+        Position angles in degrees.
 
     Returns
     -------
@@ -101,47 +109,57 @@ def fake_planet_experiment(
         Updated contrast instance.
     """
 
-    flux_ratio = mag2flux_ratio(config['fake_planet']['flux_ratio_mag'])        
-    num_fake_planets = config['fake_planet']['num_fake_planets']    
+    # Remove existing directory and all its contents
+    if output_path.exists():
+        shutil.rmtree(output_path)
+        print(f"Removed existing directory to avoid overwrites: {output_path}.")
+
+    output_path.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    flux_ratio = mag2flux_ratio(fp_config['flux_ratio_mag'])
+
+    contrast_instance = Contrast(
+        science_sequence=dataset["sci_img"],
+        psf_template=dataset["psf"],
+        parang_rad=angles,
+        psf_fwhm_radius=dataset["fwhm"] / 2,
+        dit_psf_template=dataset["dit_psf"],
+        dit_science=dataset["dit_science"],
+        scaling_factor=fp_config["scaling_factor"],
+        checkpoint_dir= output_path
+    )
+
 
     contrast_instance.design_fake_planet_experiments(
-        flux_ratios=flux_ratio,
-        num_planets=num_fake_planets,
+        flux_ratios= flux_ratio,
+        num_planets=fp_config['num_fake_planets'],
         separations = separations,
         overwrite=True,
         )
 
     num_parallel = cpu_count()//2
 
-    #algorithm_function = MultiComponentPCAPynPoint(
-     #   num_pcas=components,
-      #  scratch_dir=contrast_instance.scratch_dir,
-       # num_cpus_pynpoint=1)
-    # if version == 'PCAD':
-    #     algorithm_function = PCADataReductionGPU(
-    #             pca_numbers = components,
-    #             approx_svd = approx_svd, # truncated for large tensor calculations 
-    #             device = device
-    #             )
-    if version == 'PCAD':
+    if algo_name == 'PCAD':
         algorithm_function = PCADataReductionGPU(
-            pca_numbers=components,
-            device=device,
-            pca_method=config['fake_planet'].get('pca_method', 'auto'),
-            oversample=config['fake_planet'].get('oversample', 5),
-            niter=config['fake_planet'].get('niter', 2),
-            gram_threshold=config['fake_planet'].get('gram_threshold', 0.5),
-            random_state=config['fake_planet'].get('random_state'),
-            eps=config['fake_planet'].get('eps'),
-            approx_svd_trunc=config['fake_planet'].get('approx_svd_trunc'),
-            subsample_rotation_grid=config['fake_planet'].get('subsample_rotation_grid', 1),
-            combine=config['fake_planet'].get('combine', 'mean'),
-            verbose=verbose,
+            pca_numbers=fp_config['components'],
+            device=fp_config.get('device', 'auto'),
+            pca_method=fp_config.get('pca_method', 'auto'),
+            oversample=fp_config.get('oversample', 5),
+            niter=fp_config.get('niter', 2),
+            gram_threshold=fp_config.get('gram_threshold', 0.5),
+            random_state=fp_config.get('random_state', None),
+            eps=fp_config.get('eps', None),
+            approx_svd_trunc=fp_config.get('approx_svd_trunc', None),
+            subsample_rotation_grid=fp_config.get('subsample_rotation_grid', 1),
+            combine=fp_config.get('combine', 'mean'),
         )
 
-    if version == 'CADI':
+    if algo_name == 'CADI':
         algorithm_function = CADIDataReductionGPU(
-            device = device
+            device = fp_config.get('device', 'auto')
                 )
         
     try:
@@ -154,6 +172,8 @@ def fake_planet_experiment(
         contrast_instance.run_fake_planet_experiments(
             algorithm_function=algorithm_function,
             num_parallel=num_parallel)
+                
+
     return contrast_instance
 
 
