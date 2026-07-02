@@ -5,9 +5,9 @@ import pandas as pd
 import shutil
 
 import importlib
-import src.pipeline_ADI.contrast_pipeline.functions_ADI as functions_ADI
+from . import functions_ADI
 importlib.reload(functions_ADI)
-from src.pipeline_ADI.contrast_pipeline.functions_ADI import *
+from .functions_ADI import *
 
 import applefy
 importlib.reload(applefy)
@@ -16,7 +16,7 @@ from applefy.utils import mag2flux_ratio
 from applefy.utils.positions import center_subpixel
 
 
-def load_config(config_path, defaults_path="config/default_values.yaml"):
+def load_config(config_path, defaults_path="configs/default_values.yaml"):
     """
     Load experiment config and merge with default values.
     
@@ -96,8 +96,7 @@ def _validate_required_fields(config):
     required_fields = {
         'experiment': ['name'],
         'datasets': None,  # At least one dataset must be enabled
-        'datasets': ['science_file', 'psf_file'],
-        'instrument': ['dit_science', 'dit_psf', 'frame_rate'],
+        'instrument': ['dit_science', 'dit_psf'],
         'fake_planet': ['flux_ratio_mag', 'num_fake_planets', 'components'],
     }
     
@@ -122,14 +121,13 @@ def _validate_required_fields(config):
                     )
 
 
-
-
 def build_dataset(science_file,
                   dit_science,
                   dit_psf,
                   radius_psf,
-                  radius_sc = None,
-                  psf_file = None
+                  frame_rate, 
+                  radius_sc,
+                  psf_file
                   ):
     """
     Build dataset dictionary from input files.
@@ -157,13 +155,15 @@ def build_dataset(science_file,
 
     sci_img = np.load(science_file)
 
-    if radius_sc:
+    if radius_sc is not None:
         sci_img = zoom_to_peak(sci_img, radius_sc)
 
-    if psf_file:
+    if psf_file is not None:
         psf = np.load(psf_file)
     else:
-        n_psf = round(dit_psf / dit_science)
+        if frame_rate is None:
+            raise ValueError("frame_rate must be provided if psf_file is None.")
+        n_psf = round(dit_psf / frame_rate)
         psf = np.sum(sci_img[:n_psf], axis=0)
 
     psf = zoom_to_peak(psf, radius_psf)
@@ -202,7 +202,7 @@ def _load_angles(angle_file):
     
 
 
-def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
+def run_pipeline(config):
     """
     Main pipeline execution function.
     
@@ -211,19 +211,14 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
     
     Parameters
     ----------
-    config_path : str or Path
-        Path to experiment configuration file.
-    defaults_path : str or Path
-        Path to default values configuration file.
+    config : dict
+        Experiment configuration dictionary.
     
     Returns
     -------
     dict or None
         Contrast curves if enabled, otherwise None.
     """
-    
-    # Load and merge configuration
-    config = load_config(config_path, defaults_path)
 
     root_dir = Path(".")
 
@@ -257,7 +252,9 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
             dit_psf=inst["dit_psf"],
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
-            psf_file=ds.get("psf_file")
+            psf_file=ds.get("psf_file"),
+            frame_rate=inst["frame_rate"]
+        
         )
 
     if not datasets:
@@ -350,10 +347,10 @@ def run_pipeline(config_path, defaults_path="config/default_values.yaml"):
             #     all_curves[(dataset_name, algo_name)] = curves
                 
             #     # Save results
-            #     if crv["save_csv"]:
+            #     if crv["save_csv"] is True:
             #         _save_curves_csv(curves, curves_output_path, dataset_name, algo_name)
                 
-            #     if crv["save_plots"]:
+            #     if crv["save_plots"] is True:
             #         _save_curves_plot(curves, curves_output_path, dataset_name, algo_name)
 
     return all_curves if all_curves else None
@@ -427,22 +424,24 @@ def _save_curves_plot(curves, output_path, dataset_name, algo_name):
 if __name__ == "__main__":
     
     # Example usage
-    config_file = "config/experiment_config.yaml"
-    defaults_file = "config/default_values.yaml"
+    config_file = "configs/ghost.yaml"
+    defaults_file = "configs/default_values.yaml"
     
-    try:
-        curves = run_pipeline(config_file, defaults_file)
+    # try:
+    #     curves = run_pipeline(config_file, defaults_file)
         
-        if curves:
-            print(f"\n✓ Pipeline completed successfully!")
-            print(f"  Generated {len(curves)} contrast curve(s)")
-        else:
-            print("\n✓ Pipeline completed. No curves computed (disabled in config).")
+    #     if curves:
+    #         print(f"\n✓ Pipeline completed successfully!")
+    #         print(f"  Generated {len(curves)} contrast curve(s)")
+    #     else:
+    #         print("\n✓ Pipeline completed. No curves computed (disabled in config).")
             
-    except FileNotFoundError as e:
-        print(f"✗ Error: Configuration file not found: {e}")
-    except ValueError as e:
-        print(f"✗ Configuration error: {e}")
-    except Exception as e:
-        print(f"✗ Pipeline error: {e}")
-        raise
+    # except FileNotFoundError as e:
+    #     print(f"✗ Error: Configuration file not found: {e}")
+    # except ValueError as e:
+    #     print(f"✗ Configuration error: {e}")
+    # except Exception as e:
+    #     print(f"✗ Pipeline error: {e}")
+    #     raise
+    config = load_config(config_file, defaults_file)
+    print(config)

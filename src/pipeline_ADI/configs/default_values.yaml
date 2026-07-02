@@ -8,6 +8,7 @@
 #     behavior values expressed in this file.
 #   - If a non-optional field does not appear here but does in the template configuration file,
 #     the user MUST provide a value in the configuration file.
+#   - YAML doesn't support None values, so it is better touse null for fields that should be None.
 #
 
 
@@ -22,7 +23,7 @@ algorithms:
 
 instrument:
   radius_psf: 20                      # Radius used when centering/extracting the PSF. Units: pixels
-  radius_sc: None                     # Radius used when centering/extracting the science image. Units: pixels
+  radius_sc: null                     # Radius used when centering/extracting the science image. Units: pixels
 
 
 fake_planet:
@@ -44,7 +45,7 @@ fake_planet:
   oversample: 5                       # Extra samples for lowrank method (higher = more accurate, slower)
   niter: 2                            # Power iterations for lowrank method (higher = more accurate, slower)
   gram_threshold: 0.5                 # Ratio threshold: switches from SVD to Gram when n_samples/n_features < this
-  approx_svd_trunc: None              # Approximate SVD truncation rank (-1 for full SVD)
+  approx_svd_trunc: null              # Approximate SVD truncation rank (-1 for full SVD)
   
   # Reproducibility
   random_state: null                  # Leave null for different results each run

@@ -19,9 +19,9 @@ instrument:
   dit_science: 0.004
   dit_psf: 10
   pixel_size: 0.005
-  radius: 20
+  radius_psf: 20
 
-contrast:
+fake_planet:
   flux_ratio_mag: 16
   num_fake_planets: 3
   components: [5, 10]
@@ -29,9 +29,8 @@ contrast:
   separation: 2
   max_separation: 0.5
 
-  scaling_factor: 1.0
   approx_svd_trunc: null
-  device: cuda
+  device: "cuda"
 
   angle_start: 0
   angle_end: 30

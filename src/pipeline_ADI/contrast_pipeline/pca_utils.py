@@ -8,7 +8,6 @@ from datetime import datetime
 import time
 
 # Import your custom classes
-from applefy.utils.field_rotation import FieldRotationModel
 from fours.models.rotation import FieldRotationModel
 from applefy.detections.contrast import DataReductionInterface, Path
 from fours.utils.pca import pca_tensorboard_logging

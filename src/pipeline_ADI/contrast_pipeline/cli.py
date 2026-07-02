@@ -19,8 +19,7 @@ def main():
 
     args = parser.parse_args()
 
-    config = load_config(args.config)
-
+    config = load_config(args.config, defaults_path="configs/default_values.yaml")
     run_pipeline(config)
 
 
