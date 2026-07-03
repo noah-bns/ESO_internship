@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import gc
 import time
-from typing import Tuple, Callable, Optional
+from typing import Tuple, Callable
 from typing import List, Dict, Union
 from datetime import datetime
 import time
@@ -318,10 +318,11 @@ def pca_psf_subtraction_gpu(
 
 
             # Project onto PCA components
-            pca_scores = images_flat @ components.T  # shape: (n_frames, pca_number)
+            basis = components[:pca_number]
+            pca_scores = images_flat @ basis.T  # shape: (n_frames, pca_number)
             
             # Reconstruct noise model
-            noise_estimate = pca_scores @ components  # shape: (n_frames, n_features)
+            noise_estimate = pca_scores @ basis  # shape: (n_frames, n_features)
             
             # Compute residuals
             residual = images_flat - noise_estimate
@@ -359,6 +360,7 @@ def pca_psf_subtraction_gpu(
 
         t4 = time.perf_counter()
         print(f"[Timing] PCA Residuals: {t4 - t3:.6f}s")
+        print(f"[Timing] pca_psf_subtraction_gpu: {t4 - t0:.6f}s")
         print(f"Allocated: {torch.cuda.memory_allocated()/1024**3:.3f}GB")
         print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
 

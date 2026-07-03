@@ -94,10 +94,19 @@ def _validate_required_fields(config):
         If required fields are missing.
     """
     required_fields = {
-        'experiment': ['name'],
-        'datasets': None,  # At least one dataset must be enabled
+        'experiment': ['name'],    # Will default to 'test'
+        'datasets': None,
         'instrument': ['dit_science', 'dit_psf'],
-        'fake_planet': ['flux_ratio_mag', 'num_fake_planets', 'components'],
+        'algorithms': None,
+        # Optional fields with enforced defaults:
+        'fake_planet': [
+            'flux_ratio_mag',           # Will default to 16
+            'num_fake_planets',         # Will default to 3
+            'components',               # Will default to [10, 20, 50, 75, 100]
+            'separation',               # Will default to 1.0
+            'max_separation',           # Will default to 1.0
+            'path',                     # Will default to "results/fake_planets"
+        ],
     }
     
     # Check top-level required fields
@@ -127,7 +136,8 @@ def build_dataset(science_file,
                   radius_psf,
                   frame_rate, 
                   radius_sc,
-                  psf_file
+                  psf_file,
+                  dit_factor,
                   ):
     """
     Build dataset dictionary from input files.
@@ -157,6 +167,8 @@ def build_dataset(science_file,
 
     if radius_sc is not None:
         sci_img = zoom_to_peak(sci_img, radius_sc)
+    else:
+        print("Science images assumed square and centered")
 
     if psf_file is not None:
         psf = np.load(psf_file)
@@ -165,9 +177,16 @@ def build_dataset(science_file,
             raise ValueError("frame_rate must be provided if psf_file is None.")
         n_psf = round(dit_psf / frame_rate)
         psf = np.sum(sci_img[:n_psf], axis=0)
+    
+    if radius_psf is not None:
+        psf = zoom_to_peak(psf, radius_psf)
+    else:
+        print("PSF assumed square and centered. No zooming applied.")
 
-    psf = zoom_to_peak(psf, radius_psf)
-
+    if dit_factor is not None:
+        sci_img      = sci_img.reshape(int(sci_img.shape[0]/5), 5, *sci_img.shape[1:]).sum(axis=1)
+        dit_science *= dit_factor
+        print(f"Science DIT multiplied by factor {dit_factor}. New DIT: {dit_science}s")
 
     return {
         "psf": psf,
@@ -253,8 +272,8 @@ def run_pipeline(config):
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
             psf_file=ds.get("psf_file"),
-            frame_rate=inst["frame_rate"]
-        
+            frame_rate=inst["frame_rate"],
+            dit_factor=inst["dit_factor"]
         )
 
     if not datasets:
@@ -319,22 +338,22 @@ def run_pipeline(config):
                     )
             
             # Compute contrast curves if enabled
-            # if crv["enabled"]:
+            if crv["enabled"]:
                 
-            #     print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
+                print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
                 
-            #     curves_output_path = (
-            #         root_dir /
-            #         Path(f"{crv['path']}"
-            #         f"/{config['experiment']['name']}"
-            #         f"_{dataset_name}_{algo_name}"
-            #         )
-            #     )
+                curves_output_path = (
+                    root_dir /
+                    Path(f"{crv['path']}"
+                    f"/{config['experiment']['name']}"
+                    f"_{dataset_name}_{algo_name}"
+                    )
+                )
                 
-            #     curves_output_path.mkdir(
-            #         parents=True,
-            #         exist_ok=True
-            #     )
+                curves_output_path.mkdir(
+                    parents=True,
+                    exist_ok=True
+                )
 
             #     curves = compute_contrast_curves(
             #         contrast_instance,

@@ -27,14 +27,15 @@ importlib.reload(applefy)
 #from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
-from applefy.statistics import TTest, gaussian_sigma_2_fpf, \
-    fpf_2_gaussian_sigma, LaplaceBootstrapTest
+from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest
 
 import fours
 importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
 from applefy.detections.contrast import Contrast
+
+
 
 
 def zoom_to_peak(
@@ -75,7 +76,6 @@ def calculate_fwhm(
     print(f"Mean FWHM = {fwhm:.2f} pix \n")
     return fwhm
     
-
 
 def fake_planet_experiment(
     output_path: Path,
@@ -140,38 +140,38 @@ def fake_planet_experiment(
         overwrite=True,
         )
 
-    num_parallel = cpu_count()//2
+    # num_parallel = cpu_count()//2
 
     if algo_name == 'PCAD':
         algorithm_function = PCADataReductionGPU(
             pca_numbers=fp_config['components'],
-            device=fp_config.get('device', 'auto'),
-            pca_method=fp_config.get('pca_method', 'auto'),
-            oversample=fp_config.get('oversample', 5),
-            niter=fp_config.get('niter', 2),
-            gram_threshold=fp_config.get('gram_threshold', 0.5),
-            random_state=fp_config.get('random_state', None),
-            eps=fp_config.get('eps', None),
-            approx_svd_trunc=fp_config.get('approx_svd_trunc', None),
-            subsample_rotation_grid=fp_config.get('subsample_rotation_grid', 1),
-            combine=fp_config.get('combine', 'mean'),
+            device=fp_config['device'],
+            pca_method=fp_config['pca_method'],
+            oversample=fp_config['oversample'],
+            niter=fp_config['niter'],
+            gram_threshold=fp_config['gram_threshold'],
+            random_state=fp_config['random_state'],
+            eps=fp_config['eps'],
+            approx_svd_trunc=fp_config['approx_svd_trunc'],
+            subsample_rotation_grid=fp_config['subsample_rotation_grid'],
+            combine=fp_config['combine'],
         )
 
     if algo_name == 'CADI':
         algorithm_function = CADIDataReductionGPU(
-            device = fp_config.get('device', 'auto')
+            device = fp_config['device']
                 )
         
-    try:
-        contrast_instance.run_fake_planet_experiments(
-            algorithm_function=algorithm_function,
-            num_parallel=num_parallel)
-    except:
+    # try:
+    #     contrast_instance.run_fake_planet_experiments(
+    #         algorithm_function=algorithm_function,
+    #         num_parallel=num_parallel)
+    # except:
         # can fail in multiprocessing, depending on whether optional dependencies are installed or not
-        num_parallel=1
-        contrast_instance.run_fake_planet_experiments(
-            algorithm_function=algorithm_function,
-            num_parallel=num_parallel)
+    num_parallel=1
+    contrast_instance.run_fake_planet_experiments(
+        algorithm_function=algorithm_function,
+        num_parallel=num_parallel)
                 
 
     return contrast_instance
