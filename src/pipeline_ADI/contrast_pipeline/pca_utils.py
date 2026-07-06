@@ -17,10 +17,10 @@ def _get_pca_fitter(
     pca_method: str,
     n_components: int,
     n_samples: int,
-    n_features: int,
-    gram_threshold: float = 0.5,
-    oversample: int = 5,
-    niter: int = 2,
+    n_pixels: int,
+    gram_threshold: float = 1.0,  # can change those values to
+    oversample: int = 10,         # adjust the auto-selection
+    niter: int = 2,               # of PCA method
     eps: float | None = None,
     approx_svd_trunc: int | None = None,
 ) -> Tuple[Callable, str]:
@@ -32,9 +32,9 @@ def _get_pca_fitter(
     
     # Auto-select method if needed
     if pca_method == "auto":
-        if n_components >= 0.8 * min(n_samples, n_features):
+        if n_components >= 0.1 * min(n_samples, n_pixels):
             method = "svd"
-        elif n_samples <= gram_threshold * n_features:
+        elif n_samples <= gram_threshold * n_pixels:
             method = "gram"
         else:
             method = "lowrank"
@@ -112,14 +112,14 @@ def _get_pca_fitter(
     elif method == "lowrank":
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Randomized approximate low-rank PCA."""
-            q = approx_svd_trunc if approx_svd_trunc is not None else min(
+            q = approx_svd_trunc if approx_svd_trunc is not None else max(
                 n_components + oversample,
-                min(X.shape),
+                (n_samples) // 5,
             )
             
             _, S, V = torch.pca_lowrank(
                 X,
-                q=q,
+                q= q ,
                 center=False,
                 niter=niter,
             )
@@ -150,10 +150,8 @@ def pca_psf_subtraction_gpu(
         angles: np.ndarray,
         pca_numbers: np.ndarray,
         device: str = "auto",
-        pca_method: str = "auto",
-        oversample: int = 5,
+        pca_method: str = "gram",
         niter: int = 2,
-        gram_threshold: float = 0.5,
         random_state: int | None = None,
         eps: float | None = None,
         approx_svd_trunc: int | None = None,
@@ -263,13 +261,13 @@ def pca_psf_subtraction_gpu(
         # Get the appropriate PCA fitter
 
         max_components = int(np.max(pca_numbers))
-        n_samples, n_features = images_flat.shape
-        max_rank = min(n_samples, n_features)
+        n_samples, n_pixels = images_flat.shape
+        max_rank = min(n_samples, n_pixels)
 
         if max_components > max_rank:
             raise ValueError(
                 f"n_components={max_components} is larger than "
-                f"min(n_samples, n_features)={max_rank}."
+                f"min(n_samples, n_pixels)={max_rank}."
             )
 
         if random_state is not None:
@@ -279,9 +277,7 @@ def pca_psf_subtraction_gpu(
             pca_method=pca_method,
             n_components=max_components,
             n_samples=n_frames,
-            n_features=height * width,
-            gram_threshold=gram_threshold,
-            oversample=oversample,
+            n_pixels=height * width,
             niter=niter,
             eps=eps,
             approx_svd_trunc=approx_svd_trunc
@@ -482,9 +478,7 @@ class PCADataReductionGPU(DataReductionInterface):
             pca_numbers=self.pca_numbers,
             device=self.device,
             pca_method=self.pca_method,
-            oversample=self.oversample,
             niter=self.niter,
-            gram_threshold=self.gram_threshold,
             random_state=self.random_state,
             eps=self.eps,
             approx_svd_trunc=self.approx_svd_trunc,
