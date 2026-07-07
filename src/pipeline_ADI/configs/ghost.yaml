@@ -1,36 +1,52 @@
 experiment:
-  name: GHOST_no_coro
+  name: pipeline_ADI_gram
 
 algorithms:
-  CADI: true
+  CADI: false
   PCAD: true
 
 datasets:
   int:
     enabled: true
     science_file: /home/aosimul/noah/data/ghost_images/4ms/stg2_int.npy
-
+    psf_file: /home/aosimul/noah/data/ghost_images/4ms/psf_int.npy
   pred:
     enabled: true
     science_file: /home/aosimul/noah/data/ghost_images/4ms/stg2_pred.npy
+    psf_file: /home/aosimul/noah/data/ghost_images/4ms/psf_pred.npy
 
 instrument:
-  frame_rate: 0.0025
   dit_science: 0.004
+  dit_factor: 5
   dit_psf: 10
   pixel_size: 0.005
-  radius_psf: 20
+  radius_psf: null
 
 fake_planet:
   flux_ratio_mag: 16
   num_fake_planets: 3
-  components: [5, 10]
+  components: [5, 10, 20, 50, 75, 100] #[10, 50, 100, 150]
 
-  separation: 2
-  max_separation: 0.5
+  separation: 1
+  max_separation: 0.7
 
-  approx_svd_trunc: null
+  approx_svd_trunc: 3125
   device: "cuda"
+  pca_method: "gram" 
+  niter: 1 
 
   angle_start: 0
   angle_end: 30
+
+contrast:
+
+  enabled: true         # if not enabled, only the fake planet experiment is performed
+  path: "results/contrast"            # Root directory for output curves.
+                                      # OPTIONAL, Default: results/contrast
+  photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
+                        # OPTIONAL, Default: AS
+  test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
+                        # OPTIONAL, Default: t-test
+
+  save_csv: false                     # Save contrast curves overall best as CSV files.
+                                      # OPTIONAL, Default: false

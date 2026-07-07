@@ -3,6 +3,8 @@ import yaml
 import numpy as np
 import pandas as pd
 import shutil
+import matplotlib.gridspec as gridspec
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 import importlib
 from . import functions_ADI
@@ -14,7 +16,7 @@ importlib.reload(applefy)
 from applefy.detections.contrast import Contrast
 from applefy.utils import mag2flux_ratio
 from applefy.utils.positions import center_subpixel
-
+from applefy.statistics import fpf_2_gaussian_sigma
 
 def load_config(config_path, defaults_path="configs/default_values.yaml"):
     """
@@ -134,7 +136,6 @@ def build_dataset(science_file,
                   dit_science,
                   dit_psf,
                   radius_psf,
-                  frame_rate, 
                   radius_sc,
                   psf_file,
                   dit_factor,
@@ -156,8 +157,10 @@ def build_dataset(science_file,
         Radius for science image extraction (pixels).
     psf_file : str or Path, optional
         Path to external PSF file. If None, PSF is generated from science cube.
-    
-    Returns
+    dit_factor : int, optional
+        Factor to multiply the integration time (saves computation time by combining science frames (e.g., 2 means sum every 2 frames).
+
+            Returns
     -------
     dict
         Dataset dictionary containing psf, sci_img, fwhm, dit_psf, dit_science.
@@ -173,9 +176,7 @@ def build_dataset(science_file,
     if psf_file is not None:
         psf = np.load(psf_file)
     else:
-        if frame_rate is None:
-            raise ValueError("frame_rate must be provided if psf_file is None.")
-        n_psf = round(dit_psf / frame_rate)
+        n_psf = round(dit_psf / dit_science)
         psf = np.sum(sci_img[:n_psf], axis=0)
     
     if radius_psf is not None:
@@ -184,7 +185,7 @@ def build_dataset(science_file,
         print("PSF assumed square and centered. No zooming applied.")
 
     if dit_factor is not None:
-        sci_img      = sci_img.reshape(int(sci_img.shape[0]/5), 5, *sci_img.shape[1:]).sum(axis=1)
+        sci_img      = sci_img.reshape(int(sci_img.shape[0]/dit_factor), dit_factor, *sci_img.shape[1:]).sum(axis=1)
         dit_science *= dit_factor
         print(f"Science DIT multiplied by factor {dit_factor}. New DIT: {dit_science}s")
 
@@ -195,6 +196,7 @@ def build_dataset(science_file,
         "dit_psf": dit_psf,
         "dit_science": dit_science 
     }
+
 
 def _load_angles(angle_file):
     """
@@ -220,7 +222,6 @@ def _load_angles(angle_file):
         raise ValueError(f"Unsupported angle file format: {angle_file.suffix}, must be '.npy' or '.csv'")
     
 
-
 def run_pipeline(config):
     """
     Main pipeline execution function.
@@ -243,7 +244,7 @@ def run_pipeline(config):
 
     inst = config["instrument"]
     fp = config["fake_planet"]
-    crv = config["curves"]
+    cnst = config["contrast"]
     
 
     algorithms = {
@@ -272,7 +273,6 @@ def run_pipeline(config):
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
             psf_file=ds.get("psf_file"),
-            frame_rate=inst["frame_rate"],
             dit_factor=inst["dit_factor"]
         )
 
@@ -315,7 +315,9 @@ def run_pipeline(config):
         # Run fake planet experiment
         print(f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}...")
         
-        
+        # Store contrast curves per dataset
+        dataset_contrast = {}   
+
         for algo_name in algorithms:
 
             print(f"\nProcessing {dataset_name} with {algo_name}...")
@@ -338,15 +340,14 @@ def run_pipeline(config):
                     )
             
             # Compute contrast curves if enabled
-            if crv["enabled"]:
+            if cnst["enabled"]:
                 
                 print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
                 
                 curves_output_path = (
                     root_dir /
-                    Path(f"{crv['path']}"
+                    Path(f"{cnst['path']}"
                     f"/{config['experiment']['name']}"
-                    f"_{dataset_name}_{algo_name}"
                     )
                 )
                 
@@ -355,112 +356,79 @@ def run_pipeline(config):
                     exist_ok=True
                 )
 
-            #     curves = compute_contrast_curves(
-            #         contrast_instance,
-            #         dataset["fwhm"],
-            #         pixel_scale=inst["pixel_size"],
-            #         photometry=crv["photometry"],
-            #         test=crv["test"]
-            #     )
+                grid = True if isinstance(fp['flux_ratio_mag'], (list, np.ndarray)) else False
 
-            #     all_curves[(dataset_name, algo_name)] = curves
-                
-            #     # Save results
-            #     if crv["save_csv"] is True:
-            #         _save_curves_csv(curves, curves_output_path, dataset_name, algo_name)
-                
-            #     if crv["save_plots"] is True:
-            #         _save_curves_plot(curves, curves_output_path, dataset_name, algo_name)
-
-    return all_curves if all_curves else None
-
-
-def _save_curves_csv(curves, output_path, dataset_name, algo_name):
-    """
-    Save contrast curves to CSV file.
-    
-    Parameters
-    ----------
-    curves : dict or pd.DataFrame
-        Contrast curve data.
-    output_path : Path
-        Output directory path.
-    dataset_name : str
-        Dataset name for filename.
-    algo_name : str
-        Algorithm name for filename.
-    """
-    csv_path = output_path / f"contrast_curve_{dataset_name}_{algo_name}.csv"
-    
-    if isinstance(curves, pd.DataFrame):
-        curves.to_csv(csv_path, index=False)
-    else:
-        # Adapt based on your curve data structure
-        pd.DataFrame(curves).to_csv(csv_path, index=False)
-    
-    print(f"Saved CSV: {csv_path}")
-
-
-def _save_curves_plot(curves, output_path, dataset_name, algo_name):
-    """
-    Save contrast curves as plot.
-    
-    Parameters
-    ----------
-    curves : dict or pd.DataFrame
-        Contrast curve data.
-    output_path : Path
-        Output directory path.
-    dataset_name : str
-        Dataset name for filename.
-    algo_name : str
-        Algorithm name for filename.
-    """
-    import matplotlib.pyplot as plt
-    
-    plot_path = output_path / f"contrast_curve_{dataset_name}_{algo_name}.png"
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Adapt based on your curve data structure
-    if isinstance(curves, pd.DataFrame):
-        ax.plot(curves.iloc[:, 0], curves.iloc[:, 1], 'o-', linewidth=2)
-    else:
-        ax.plot(curves, 'o-', linewidth=2)
-    
-    ax.set_xlabel("Separation (pixels)")
-    ax.set_ylabel("Contrast")
-    ax.set_title(f"Contrast Curve: {dataset_name} - {algo_name}")
-    ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
-    
-    fig.savefig(plot_path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    
-    print(f"Saved plot: {plot_path}")
-
-
-if __name__ == "__main__":
-    
-    # Example usage
-    config_file = "configs/ghost.yaml"
-    defaults_file = "configs/default_values.yaml"
-    
-    # try:
-    #     curves = run_pipeline(config_file, defaults_file)
+                dataset_contrast[algo_name] = compute_contrast(
+                    contrast_instance,
+                    dataset["fwhm"],
+                    pixel_scale=inst["pixel_size"],
+                    photometry=cnst["photometry"],
+                    test=cnst["test"],
+                    grid = grid
+                )
         
-    #     if curves:
-    #         print(f"\n✓ Pipeline completed successfully!")
-    #         print(f"  Generated {len(curves)} contrast curve(s)")
-    #     else:
-    #         print("\n✓ Pipeline completed. No curves computed (disabled in config).")
-            
-    # except FileNotFoundError as e:
-    #     print(f"✗ Error: Configuration file not found: {e}")
-    # except ValueError as e:
-    #     print(f"✗ Configuration error: {e}")
-    # except Exception as e:
-    #     print(f"✗ Pipeline error: {e}")
-    #     raise
-    config = load_config(config_file, defaults_file)
-    print(config)
+                # Save grid results
+                if grid ==True:
+                    _save_grid_animation(dataset_contrast[algo_name][1], curves_output_path, dataset_name, algo_name)
+
+
+
+def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_name):
+
+    keys = list(contrast_grids.keys())
+
+    fig = plt.figure(figsize=(8, 4))
+
+    gs0 = fig.add_gridspec(1, 1)
+    gs1 = gridspec.GridSpecFromSubplotSpec(
+        1, 2,
+        subplot_spec=gs0[0],
+        wspace=0.05,
+        width_ratios=[1, 0.03]
+    )
+
+    contrast_ax = fig.add_subplot(gs1[0])
+    colorbar_ax = fig.add_subplot(gs1[1])
+
+
+    def update(i):
+        contrast_ax.clear()
+        colorbar_ax.clear()
+
+        key = keys[i]
+
+        grid = contrast_grids[key].copy()
+
+        # convert FPF to sigma
+        grid = grid.map(fpf_2_gaussian_sigma)
+
+        # convert flux ratio to magnitude
+        grid.index = flux_ratio2mag(grid.index)
+
+        plot_contrast_grid(
+            contrast_grid_axis=contrast_ax,
+            colorbar_axis=colorbar_ax,
+            contrast_grid=grid,
+            cmap = 'YlOrRd' if algo_name == 'CADI' else "YlGnBu"
+        )
+
+        contrast_ax.set_ylabel("Contrast - $c=f_p/f_*$ [mag]", fontsize=14)
+        contrast_ax.set_xlabel("Separation [FWHM]", fontsize=14)
+
+        contrast_ax.set_title(
+            f"{dataset_name} {algo_name}: {key.replace("_", " ")}",
+            fontsize=16,
+            fontweight="bold"
+        )
+
+        contrast_ax.tick_params(labelsize=12)
+
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=len(keys),
+        interval=500
+    )
+
+    ani.save(f"{curves_output_path}/GRID.gif", writer=PillowWriter(fps=2))

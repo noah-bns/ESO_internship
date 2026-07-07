@@ -18,6 +18,7 @@ from astropy.io import fits
 from astropy.visualization import LogStretch, ImageNormalize, AsinhStretch
 from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
+from scipy.ndimage import center_of_mass
 
 #scientific libraries
 from hcipy import *
@@ -37,11 +38,114 @@ from applefy.detections.contrast import Contrast
 
 
 
+import numpy as np
+from skimage.registration import phase_cross_correlation
+
+
+def estimate_center(stack, nframes=1000, upsample_factor=1000,
+                    max_iter=100, tol=1e-3):
+    """
+    Estimate the center of a stack from the median of the first nframes
+    using iterative 180° rotational phase cross-correlation.
+
+    Returns
+    -------
+    yc, xc : float
+        Subpixel center coordinates.
+    """
+
+    ref = np.median(stack[:nframes], axis=0)
+
+    ny, nx = ref.shape
+    yc = (ny - 1) / 2
+    xc = (nx - 1) / 2
+
+    for _ in range(max_iter):
+
+        half = int(min(
+            yc,
+            xc,
+            ny - 1 - yc,
+            nx - 1 - xc
+        ))
+
+        y = int(round(yc))
+        x = int(round(xc))
+
+        sub = ref[y-half:y+half+1,
+                  x-half:x+half+1]
+
+        rot = np.rot90(sub, 2)
+
+        shift, _, _ = phase_cross_correlation(
+            sub,
+            rot,
+            upsample_factor=upsample_factor
+        )
+
+        dy, dx = shift / 2
+
+        yc += dy
+        xc += dx
+
+        if np.hypot(dy, dx) < tol:
+            print(f"Center converged after {_+1} iterations.")
+            break
+
+    return (yc, xc)
+
+def crop_stack(stack, 
+               coords = None,
+               radius = None
+               ):
+    """
+    Crop every frame to the largest odd square centered on (yc, xc).
+    """
+
+    if coords is None:
+        yc, xc = estimate_center(stack)
+    
+    else:
+        yc, xc = coords
+    
+    ny, nx = stack.shape[1:]
+
+    if radius is None:
+        half = int(min(
+            yc,
+            xc,
+            ny - 1 - yc,
+            nx - 1 - xc
+        ))
+    else:
+        half = radius
+        
+    yc = int(round(yc))
+    xc = int(round(xc))
+
+    return stack[
+        :,
+        yc-half:yc+half+1,
+        xc-half:xc+half+1
+    ]
+
 
 def zoom_to_peak(
         img, 
-        radius):
-    coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
+        radius,
+        method = 'com'
+        ):
+    """
+    Zoom into the peak of the PSF image.
+    method: 
+    - 'com' for center of mass, https://docs.scipy.org/doc/scipy-1.18.0/reference/generated/scipy.ndimage.center_of_mass.html
+    - 'max' for maximum pixel value
+    """
+    if method == 'com':
+        coords_maxpsf = (np.round(np.array(center_of_mass(img))).astype(int))
+    if method == 'max':
+        coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
+
     img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
     return img
 
@@ -147,9 +251,7 @@ def fake_planet_experiment(
             pca_numbers=fp_config['components'],
             device=fp_config['device'],
             pca_method=fp_config['pca_method'],
-            oversample=fp_config['oversample'],
             niter=fp_config['niter'],
-            gram_threshold=fp_config['gram_threshold'],
             random_state=fp_config['random_state'],
             eps=fp_config['eps'],
             approx_svd_trunc=fp_config['approx_svd_trunc'],
@@ -177,12 +279,13 @@ def fake_planet_experiment(
     return contrast_instance
 
 
-def compute_contrast_curves(
+def compute_contrast(
         contrast_instance, 
         fwhm, 
         pixel_scale, 
+        grid,
         photometry = 'FS', 
-        test = 't-test'
+        test = 't-test',
         ):
     """
     Compute analytic contrast curves for a processed high-contrast imaging
@@ -209,15 +312,26 @@ def compute_contrast_curves(
         - ``'t-test'`` : assumes Gaussian residual noise (default)
         - ``'bootstrap'`` : Laplacian residual noise model following
           Bonse et al. (2023)
-    pixel_scale: pixel size in arcsec to convert FWHM
-    
+    pixel_scale : float
+        Pixel size in arcseconds.
+    grid : bool, optional
+        If True, compute contrast curves on a grid of separations and flux
+        ratios. If False, compute contrast curves at specified separations
+        only (default: False).
+
     Returns
     -------
-    contrast_curves : object
-        Computed analytic contrast curves.
-    contrast_errors : object
-        Uncertainties associated with the contrast curves.
-
+    if grid is False:
+        contrast_curves : object
+            Computed analytic contrast curves.
+        contrast_errors : object
+            Uncertainties associated with the contrast curves.
+    if grid is True:
+        contrast_curves_grid : dict
+            Contrast grids (one for each number of PCA components)
+        contrast_grids : pandas DataFrame
+            Contrast curves obtained by thresholding the contrast grids.
+    
     Warns
     -----
     UserWarning
@@ -259,276 +373,50 @@ def compute_contrast_curves(
         # Issue a warning
         warnings.warn("Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).", UserWarning)
 
+    if grid ==False:
+        contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
+            statistical_test=statistical_test,
+            confidence_level_fpf=gaussian_sigma_2_fpf(5),
+            num_rot_iter=20,
+            pixel_scale= pixel_scale)
 
-    contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
-        statistical_test=statistical_test,
-        confidence_level_fpf=gaussian_sigma_2_fpf(5),
-        num_rot_iter=20,
-        pixel_scale= pixel_scale)
+        return contrast_curves, contrast_errors
+    
+    if grid == True:
+        contrast_curves_grid, contrast_grids = contrast_instance.compute_analytic_contrast_grids(
+            statistical_test=statistical_test,
+            confidence_level_fpf=gaussian_sigma_2_fpf(5),
+            num_rot_iter=20,
+            safety_margin=1.0,
+            num_cores=1, 
+            pixel_scale= pixel_scale)
 
-    return contrast_curves, contrast_errors
-
-
-def plot_contrast_curves(
-        contrast_curves, 
-        contrast_errors, 
-        lim_mag_y, 
-        lim_arcsec = None, 
-        title = None,
-        cmap = "magma",
-        x_axis = None,
-        x_axis_label = None
-        ):
-    # compute the overall best contrast curve
-    PADI_values = contrast_curves.drop(columns=['cADI'], errors="ignore")
-    overall_best = np.min(PADI_values.values, axis=1)
-
-    # get the error bars of the the overall best contrast curve
-    best_idx = np.argmin(PADI_values.values, axis=1)
-    best_contrast_errors = contrast_errors.values[np.arange(len(best_idx)), best_idx]
-
-    # Find one color for each number of PCA components used
-    color_map = plt.cm.get_cmap(cmap)   # seaborn-style colormap available in mpl
-    colors = [color_map(int(i)) for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))]
-
-    if x_axis:
-        separations_arcsec = contrast_curves.reset_index(level=0).index * x_axis
-    else:
-        separations_arcsec = contrast_curves.reset_index(level=0).index
-    separations_FWHM = contrast_curves.reset_index(level=1).index
-
-    # 1.) Create Plot Layout
-    fig = plt.figure(constrained_layout=False, figsize=(12, 8))
-    gs0 = fig.add_gridspec(1, 1)
-    axis_contrast_curvse = fig.add_subplot(gs0[0, 0])
+        return contrast_curves_grid, contrast_grids
 
 
-    # ---------------------- Create the Plot --------------------
-    i = 0 # color picker
-    for tmp_model in contrast_curves.columns:
-        
-        if tmp_model == 'cADI':
-            num_components = 'cADI'
-            color = 'red'
-        else:
-            num_components = int(tmp_model[5:8])
-            color = colors[i]
-        tmp_flux_ratios = contrast_curves.reset_index(
-            level=0)[tmp_model].values
-        tmp_errors = contrast_errors.reset_index(
-            level=0)[tmp_model].values
+def plot_contrast_grid(
+    contrast_grid_axis,
+    colorbar_axis,
+    contrast_grid,
+    cmap = "YlGnBu"):
 
-        axis_contrast_curvse.plot(
-            separations_arcsec,
-            tmp_flux_ratios,
-            color = color,
-            label=num_components)
+    c_bar_kargs = dict(
+        orientation = "vertical",
+        label = r"Confidence [$\sigma_{\mathcal{N}}$]")
 
-        axis_contrast_curvse.fill_between(
-            separations_arcsec,
-            tmp_flux_ratios + tmp_errors,
-            tmp_flux_ratios - tmp_errors,
-            color = color,
-            alpha=0.5)
-        i+=1
+    heat = sns.heatmap(
+        contrast_grid,
+        vmax=2, vmin=7,
+        annot=True,
+        cmap= cmap,
+        ax=contrast_grid_axis,
+        cbar_ax=colorbar_axis,
+        cbar_kws=c_bar_kargs)
 
-    axis_contrast_curvse.set_yscale("log")
-    # ------------ Plot the overall best -------------------------
-    axis_contrast_curvse.plot(
-        separations_arcsec,
-        overall_best,
-        color = "blue",
-        lw=3,
-        ls="--",
-        label="Best")
-
-    # ------------- Double axis and limits -----------------------
-    if lim_arcsec:
-        lim_arcsec_x = lim_arcsec
-    else:
-        lim_arcsec_x = (np.min(separations_arcsec) - 0.1, np.max(separations_arcsec) + 0.1)
-
-    sep_lambda_arcse = interpolate.interp1d(
-        separations_arcsec,
-        separations_FWHM,
-        fill_value='extrapolate')
-
-    axis_contrast_curvse_mag = axis_contrast_curvse.twinx()
-    axis_contrast_curvse_mag.plot(
-        separations_arcsec,
-        flux_ratio2mag(tmp_flux_ratios),
-        alpha=0.)
-    axis_contrast_curvse_mag.invert_yaxis()
-
-    axis_contrast_curvse_lambda = axis_contrast_curvse.twiny()
-    axis_contrast_curvse_lambda.plot(
-        separations_FWHM,
-        tmp_flux_ratios,
-        alpha=0.)
-
-    axis_contrast_curvse.grid(which='both')
-    axis_contrast_curvse_mag.set_ylim(*lim_mag_y)
-    axis_contrast_curvse.set_ylim(
-        mag2flux_ratio(lim_mag_y[0]),
-        mag2flux_ratio(lim_mag_y[1]))
-
-    axis_contrast_curvse.set_xlim(
-        *lim_arcsec_x)
-    axis_contrast_curvse_mag.set_xlim(
-        *lim_arcsec_x)
-    axis_contrast_curvse_lambda.set_xlim(
-        *sep_lambda_arcse(lim_arcsec_x))
-
-    # ----------- Labels and fontsizes --------------------------
-    if x_axis_label:
-        x_axis_labelling = x_axis_label
-    else:
-        x_axis_labelling = r"Separation [arcsec]"
-    axis_contrast_curvse.set_xlabel(
-        x_axis_labelling, size=16)
-    axis_contrast_curvse_lambda.set_xlabel(
-        r"Separation [FWHM]", size=16)
-
-    axis_contrast_curvse.set_ylabel(
-        r"Planet-to-star flux ratio", size=16)
-    axis_contrast_curvse_mag.set_ylabel(
-        r"$\Delta$ Magnitude", size=16)
-
-    axis_contrast_curvse.tick_params(
-        axis='both', which='major', labelsize=14)
-    axis_contrast_curvse_lambda.tick_params(
-        axis='both', which='major', labelsize=14)
-    axis_contrast_curvse_mag.tick_params(
-        axis='both', which='major', labelsize=14)
-
-    if title:
-        set_title = title
-    else:
-        set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
-    axis_contrast_curvse_mag.set_title(
-        set_title,
-        fontsize=18, fontweight="bold", y=1.1)
-
-    # --------------------------- Legend -----------------------
-    handles, labels = axis_contrast_curvse.\
-        get_legend_handles_labels()
-
-    leg1 = fig.legend(handles, labels,
-                    bbox_to_anchor=(0.12, -0.1),
-                    fontsize=14,
-                    title="# PCA components",
-                    loc='lower left', ncol=8)
-
-    _=plt.setp(leg1.get_title(),fontsize=14)
-
-
-def plot_best_PCA_number(
-        contrast_curves_list, 
-        components, 
-        lables = None, 
-        colors = ['red', 'blue']
-        ):
-    plt.figure(figsize=(12, 8))
-
-
-
-    separations_arcsec = contrast_curves_list[-1].reset_index(level=0).index
-    plt.plot(separations_arcsec,
-            np.array(components)[np.argmin(
-                contrast_curves_list[-1].values,
-                axis=1)])
-        
-    plt.title(r"Best number of PCA components",
-            fontsize=18, fontweight="bold", y=1.1)
-
-    plt.tick_params(axis='both', which='major', labelsize=14)
-    plt.xlabel("Separation [arcsec]", fontsize=16)
-    plt.ylabel("Number of PCA components", fontsize=16)
-    plt.xlim(left = np.min(separations_arcsec), right = np.max(separations_arcsec))
-
-
-    plt.grid()
-
-    #create second x axis 
-    #note: must have the same separations
-    ax2 = plt.twiny()
-    for i, contrast_curves in enumerate(contrast_curves_list):
-        separations_FWHM = contrast_curves.reset_index(level=1).index
-
-        ax2.plot(separations_FWHM,
-                    np.array(components)[
-                        np.argmin(contrast_curves.values, axis=1)],
-                        label = lables[i] if lables else None,
-                        color = colors[i]
-                )
-
-    ax2.set_xlabel("Separation [FWHM]", fontsize=16)
-    ax2.tick_params(axis='both', which='major', labelsize=14)
-    ax2.set_xlim(left = np.min(separations_FWHM), right = np.max(separations_FWHM))
-    plt.legend(fontsize=14,
-                    loc='upper right')
-
-
-def create_pca_gif(
-    folder,
-    components,
-    output_gif="pca_animation.gif",
-    duration=0.5,
-):
-    """
-    Create a GIF from residual FITS images corresponding to different PCA values.
-
-    Parameters
-    ----------
-    folder : str or Path
-        Base folder containing the 'residuals' directory.
-    components : iterable
-        PCA component numbers, e.g. [2, 5, 10, 100].
-    residual_id : int
-        Residual image ID (default: 0 -> residual_ID_0000.fits).
-    output_gif : str
-        Output GIF filename.
-    duration : float
-        Time per frame in seconds.
-    """
-
-    frames = []
-
-    for pca in components:
-        pca_str = f"{int(pca):03d}"
-
-        fits_files = sorted(
-            (
-                Path(folder)
-                / "residuals"
-                / f"_PCA_{pca_str}_components"
-            ).glob("*.fits")
-        )
-
-        for file in fits_files:
-
-            data = fits.getdata(file)
-            v = np.nanpercentile((data), 99.5)
-            norm = ImageNormalize((data), vmin=-v, vmax=v, 
-                                  #stretch=AsinhStretch(), 
-                                  clip = True)
-            frame = norm(data)
-            frame = (250 * frame).astype(np.uint8)
-
-            # Convert to RGB so we can draw colored text
-            img = Image.fromarray(frame).convert("L") #instead of RGB
-            draw = ImageDraw.Draw(img)
-            label = (
-                f"PCA = {int(pca)}\n"
-                f"{file.name}"
-            )
-
-            draw.text(
-                (10, 10),
-                label,
-                #fill=(0,0,0),
-            )
-            frames.append(np.array(img))
-
-    imageio.mimsave(output_gif, frames, duration=duration)
-    print(f"Saved GIF: {output_gif}")
+    ylabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_yticklabels()]
+    _=heat.set_yticklabels(ylabels)
+    xlabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_xticklabels()]
+    _=heat.set_xticklabels(xlabels)
+    

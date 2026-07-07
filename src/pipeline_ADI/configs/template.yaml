@@ -7,7 +7,7 @@
 #   - Fields marked OPTIONAL may be omitted.
 #   - If an OPTIONAL field is omitted, the pipeline should use the default
 #     behavior described in the comments.
-#
+#   - YAML files do not recognize None values. Use "null" (without quotes) to indicate a null value.
 
 # ============================================================================
 # Output Experiment
@@ -45,12 +45,12 @@ datasets:                               # Each enabled dataset will be processed
 # ============================================================================
 
 instrument:
-  frame_rate: 0.0025        # Phase Screen frame rate, AO loop. Units: seconds 
   dit_science: 0.004        # Science frame integration time. Units: seconds (0.004 = 4 ms)
+  dit_factor: 5             # Multiplier for science image integration time. Units: dimensionless, Default = 1
   dit_psf: 10.0             # PSF calibration integration time. Units: seconds
   pixel_size: 0.005         # Pixel scale. Units: arcsec/pixel
   radius_psf: 20            # Radius used when centering/extracting the PSF. Units: pixels
-  radius_sc: None           # OPTIONAL. Radius used when centering/extracting the science image. Units: pixels
+  radius_sc: null           # OPTIONAL. Radius used when centering/extracting the science image. Units: pixels
 
 
 
@@ -86,18 +86,18 @@ fake_planet:
   device: "auto"          # Processing device. "auto" (GPU if available), 'cpu' or 'cuda'
   pca_method: "auto"      # PCA method. Allowed values: "auto", "svd", "gram", or "lowrank"
                           # OPTIONAL, Default: "auto" (pipeline chooses the best method based on input data size and device)  
-  approx_svd_trunc: None  # Approximate SVD truncation rank. OPTIONAL, If omitted or null:  the pipeline computes a default value.
+  approx_svd_trunc: null  # Approximate SVD truncation rank. OPTIONAL, If omitted or null:  the pipeline computes a default value.
   
 
 
 # ============================================================================
 # OPTIONAL Contrast curve calculation
 # ============================================================================
-curves:
+contrast:
 
   enabled: true         # if not enabled, only the fake planet experiment is performed
-  path: "results/contrast_curves"     # Root directory for output curves.
-                                      # OPTIONAL, Default: results/contrast_curves
+  path: "results/contrast"            # Root directory for output curves.
+                                      # OPTIONAL, Default: results/contrast
   photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
                         # OPTIONAL, Default: AS
   test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
@@ -105,8 +105,7 @@ curves:
 
   save_csv: false                     # Save contrast curves overall best as CSV files.
                                       # OPTIONAL, Default: false
-  save_plots: true                    # Save contrast curves as plots.
-                                      # OPTIONAL, Default: true
+
 
 
 
