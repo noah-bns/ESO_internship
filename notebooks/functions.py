@@ -12,6 +12,7 @@ from scipy import interpolate
 import importlib
 import time
 import gc
+import seaborn as sns
 
 #images
 mpl.rcParams['hatch.linewidth'] = 0.5  # previous pdf hatch linewidth
@@ -438,7 +439,8 @@ def compute_contrast_curves(
         fwhm, 
         pixel_scale, 
         photometry = 'FS', 
-        test = 't-test'
+        test = 't-test',
+        grid = False
         ):
     """
     Compute analytic contrast curves for a processed high-contrast imaging
@@ -515,12 +517,20 @@ def compute_contrast_curves(
         # Issue a warning
         warnings.warn("Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).", UserWarning)
 
-
-    contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
-        statistical_test=statistical_test,
-        confidence_level_fpf=gaussian_sigma_2_fpf(5),
-        num_rot_iter=20,
-        pixel_scale= pixel_scale)
+    if grid:
+        contrast_curves, contrast_errors = contrast_instance.compute_contrast_grids(
+            statistical_test=statistical_test,
+            confidence_level_fpf=gaussian_sigma_2_fpf(5),
+            num_rot_iter=20,
+            safety_margin=1.0,
+            num_cores=1, # num_parallel,
+            pixel_scale= pixel_scale)    
+    else:
+        contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
+            statistical_test=statistical_test,
+            confidence_level_fpf=gaussian_sigma_2_fpf(5),
+            num_rot_iter=20,
+            pixel_scale= pixel_scale)
 
     return contrast_curves, contrast_errors
 
@@ -1201,3 +1211,29 @@ def pca_psf_subtraction_gpu(
         print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
 
         return np.array(pca_residuals)
+
+
+def plot_contrast_grid(
+    contrast_grid_axis,
+    colorbar_axis,
+    contrast_grid):
+
+    c_bar_kargs = dict(
+        orientation = "vertical",
+        label = r"Confidence [$\sigma_{\mathcal{N}}$]")
+
+    heat = sns.heatmap(
+        contrast_grid,
+        vmax=2, vmin=7,
+        annot=True,
+        cmap="YlGnBu",
+        ax=contrast_grid_axis,
+        cbar_ax=colorbar_axis,
+        cbar_kws=c_bar_kargs)
+
+    ylabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_yticklabels()]
+    _=heat.set_yticklabels(ylabels)
+    xlabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_xticklabels()]
+    _=heat.set_xticklabels(xlabels)

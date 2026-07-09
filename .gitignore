@@ -22,6 +22,9 @@ data/
 results/
 *.mp4
 *.avi
+*gif
+/src/pipeline_ADI/results
+
 
 # IDE
 .vscode/settings.json

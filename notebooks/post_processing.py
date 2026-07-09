@@ -1,9 +1,9 @@
 #from astropy.modeling import models, fitting
 import pandas as pd
 import importlib
-import notebooks.functions as functions
+import functions as functions
 importlib.reload(functions)
-from notebooks.functions import *
+from functions import *
 
 import numpy as np
 import os
@@ -31,7 +31,7 @@ from applefy.utils.positions import center_subpixel
 frame_rate  = 1/400 #s
 dit_science = 4e-3  #s
 dit_psf     = 10    #s
-pixel_size  = 0.005 #arcsec
+pixel_size  = None #arcsec
 LambdaD     = 4     #pixels
 n_psf       = round(dit_psf/dit_science)
 
@@ -53,9 +53,10 @@ sc_img_pred    = sc_img_pred[:, radius_sc:-radius_sc, radius_sc:-radius_sc]
 psf_pred       = psf_pred[radius_psf:-radius_psf, radius_psf:-radius_psf]
 psf_int        = psf_int[radius_psf:-radius_psf, radius_psf:-radius_psf]
 
-sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/5), 5, *sc_img_int.shape[1:]).sum(axis=1)
-sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/5), 5, *sc_img_pred.shape[1:]).sum(axis=1)
-dit_science    = dit_science*5
+binning        = 5
+sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
+sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
+dit_science    = dit_science*binning
 
 # CREATE DATASETS
 datasets = {
@@ -85,10 +86,10 @@ curves = {}
 
 #FILL
 #-----------
-# fake planet brightness
+name                    = 'test_grid'
 grid                    = True
 flux_ratio_mag          = 16
-flux_ratios_mag         = np.linspace(7, 15, 10)
+flux_ratios_mag         = np.linspace(7, 15, 5)
 num_fake_planets        = 3
 components              = [5, 10] 
 scaling_factor          = 1.0  # A factor to account e.g. for ND filters
@@ -96,7 +97,6 @@ angles                  = np.linspace(0, 30, np.shape(sc_img_int)[0])   #parang[
 angles                  = np.deg2rad(angles)
 flux_ratio              = mag2flux_ratio(flux_ratio_mag)
 flux_ratios             = mag2flux_ratio(flux_ratios_mag)
-name                    = 'GHOST_no_coro5'
 separation              = 1
 max_separation          = 0.5                                           #in fraction of total image radius
 approx_svd_trunc        = round(np.shape(sc_img_int)[0] / 5)
@@ -106,9 +106,9 @@ device                  = 'cpu'                                        #'cpu'
 for dataset_name, dataset in datasets.items():
     for algo_name, alg in algorithms.items():
         if grid == True:
-            path = f"results/contrast_grid/{name}_{dataset_name}_{algo_name}"
+            path = f"/home/aosimul/noah/results/contrast_grid/{name}_{dataset_name}_{algo_name}"
         else:
-            path = f"results/contrast_curves/{name}_{dataset_name}_{algo_name}"
+            path = f"/home/aosimul/noah/results/contrast_curves/{name}_{dataset_name}_{algo_name}"
         if not os.path.exists(path):
             os.makedirs(path)
             
