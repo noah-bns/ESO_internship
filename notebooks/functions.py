@@ -13,6 +13,7 @@ import importlib
 import time
 import gc
 import seaborn as sns
+import pandas as pd
 
 #images
 mpl.rcParams['hatch.linewidth'] = 0.5  # previous pdf hatch linewidth
@@ -35,6 +36,7 @@ from applefy.wrappers.pynpoint import MultiComponentPCAPynPoint
 from applefy.utils.photometry import AperturePhotometryMode
 from applefy.statistics import TTest, gaussian_sigma_2_fpf, \
     fpf_2_gaussian_sigma, LaplaceBootstrapTest
+from applefy.wrappers.vip import MultiComponentPCAvip
 
 import fours
 importlib.reload(fours)
@@ -396,6 +398,7 @@ def fake_planet_experiment(
         Number of PCA components used in the
         ``MultiComponentPCAPynPoint`` algorithm.
     """
+    kwargs={'imlib':'skimage', 'interpolation':'biquintic', "nproc":None, 'verbose':False} # for speed improvement
 
     contrast_instance.design_fake_planet_experiments(
         flux_ratios=flux_ratio,
@@ -406,16 +409,25 @@ def fake_planet_experiment(
 
     num_parallel = cpu_count()//2
 
+    grid = False
+    if isinstance(flux_ratio, (np.ndarray, list)):
+        grid = True
     #algorithm_function = MultiComponentPCAPynPoint(
      #   num_pcas=components,
       #  scratch_dir=contrast_instance.scratch_dir,
        # num_cpus_pynpoint=1)
     if version == 'PCAD':
-        algorithm_function = PCADataReductionGPU(
-                pca_numbers = components,
-                approx_svd = approx_svd, # truncated for large tensor calculations 
-                device = device
-                )
+        if grid == False:
+            algorithm_function = PCADataReductionGPU(
+                    pca_numbers = components,
+                    approx_svd = approx_svd, # truncated for large tensor calculations 
+                    device = device
+                    )
+        if grid == True:
+            algorithm_function = MultiComponentPCAvip(
+                num_pcas=components,
+                kwarg=kwargs)
+                    
     if version == 'CADI':
         algorithm_function = CADIDataReductionGPU(
             device = device
@@ -766,13 +778,13 @@ def create_pca_gif(
     for pca in components:
         pca_str = f"{int(pca):03d}"
 
-        fits_files = sorted(
-            (
-                Path(folder)
-                / "residuals"
-                / f"_PCA_{pca_str}_components"
-            ).glob("*.fits")
-        )
+        base = Path(folder) / "residuals"
+
+        dir1 = base / f"_PCA_{pca_str}_components"
+        dir2 = base / f"PCA ({pca_str} components)"
+        residual_dir = dir1 if dir1.exists() else dir2
+
+        fits_files = sorted(residual_dir.glob("*.fits"))
 
         for file in fits_files:
 
@@ -1237,3 +1249,241 @@ def plot_contrast_grid(
     xlabels = ['{:.1f}'.format(float(x.get_text()))
                for x in heat.get_xticklabels()]
     _=heat.set_xticklabels(xlabels)
+
+
+def plot_contrast_curves2(
+    contrast_curves, 
+    lim_mag_y,
+    contrast_errors = None, 
+    lim_x = None, 
+    title = None,
+    cmap = "magma",
+    alpha = 0.7,
+    ):
+
+    # compute the overall best contrast curve
+    PADI_values = contrast_curves.loc[:, ~contrast_curves.columns.str.contains("cADI", regex=True)]
+    overall_best = np.min(PADI_values.values, axis=1)
+
+    # get the error bars of the the overall best contrast curve
+    best_idx = np.argmin(PADI_values.values, axis=1)
+
+    # Find one color for each number of PCA components used
+    color_map = plt.cm.get_cmap(cmap)   # seaborn-style colormap available in mpl
+    colors = [color_map(int(i)) for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))]
+
+    if isinstance(contrast_curves.index, pd.MultiIndex):
+        separations_arcsec = contrast_curves.index.get_level_values(0)
+        separations_FWHM = contrast_curves.index.get_level_values(1)
+
+        x = separations_FWHM        # bottom axis
+        x_top = separations_arcsec  # top axis
+        multi_index = True
+    else:
+        x = contrast_curves.index
+        multi_index = False
+
+    # 1.) Create Plot Layout
+    fig = plt.figure(constrained_layout=False, figsize=(12, 8))
+    gs0 = fig.add_gridspec(1, 1)
+    axis_contrast_curves = fig.add_subplot(gs0[0, 0])
+
+
+    # ---------------------- Create the Plot --------------------
+    i = 0 # color picker
+    for tmp_model in contrast_curves.columns:
+        
+        if 'cADI'.lower() in tmp_model.lower():
+            num_components = 'cADI'
+            color = 'red'
+        else:
+            num_components = int(tmp_model[5:8])
+            color = colors[i]
+            i+=1
+        tmp_flux_ratios = contrast_curves.reset_index(
+            level=0)[tmp_model].values
+
+
+        axis_contrast_curves.plot(
+            x,
+            tmp_flux_ratios,
+            color = color,
+            alpha = alpha,
+            label=num_components)
+
+        if contrast_errors is not None:
+            tmp_errors = contrast_errors.reset_index(
+                level=0)[tmp_model].values
+            
+            axis_contrast_curves.fill_between(
+                x,
+                tmp_flux_ratios + tmp_errors,
+                tmp_flux_ratios - tmp_errors,
+                color = color,
+                alpha=alpha/2)
+            
+            best_contrast_errors = contrast_errors.values[np.arange(len(best_idx)), best_idx]
+
+            axis_contrast_curves.fill_between(
+                x,
+                overall_best + best_contrast_errors,
+                overall_best - best_contrast_errors,
+                color = 'blue',
+                alpha=alpha/2)
+
+    axis_contrast_curves.set_yscale("log")
+    # ------------ Plot the overall best -------------------------
+    axis_contrast_curves.plot(
+        x,
+        overall_best,
+        color = "blue",
+        lw=3,
+        ls="--",
+        label="Best")
+
+
+    # ------------- Double axis and limits -----------------------
+    if lim_x:
+        lim_x = lim_x
+    else:
+        lim_x = (np.min(x) - 0.01, np.max(x) + 0.01)
+
+
+    axis_contrast_curves_mag = axis_contrast_curves.twinx()
+    axis_contrast_curves_mag.plot(
+        x,
+        flux_ratio2mag(tmp_flux_ratios),
+        alpha=0.)
+    axis_contrast_curves_mag.invert_yaxis()
+
+
+    axis_contrast_curves.grid(which='both')
+    axis_contrast_curves_mag.set_ylim(*lim_mag_y)
+    axis_contrast_curves.set_ylim(
+        (mag2flux_ratio(lim_mag_y[0])),
+        (mag2flux_ratio(lim_mag_y[1])))
+
+    axis_contrast_curves.set_xlim(*lim_x)
+    axis_contrast_curves_mag.set_xlim(*lim_x)
+
+
+    if multi_index:
+        fwhm_to_arcsec = interpolate.interp1d(
+            separations_FWHM,
+            separations_arcsec,
+            fill_value="extrapolate"
+        )
+
+        axis_contrast_curves_arcsec = axis_contrast_curves.twiny()
+        axis_contrast_curves_arcsec.plot(
+            separations_arcsec,
+            tmp_flux_ratios,
+            alpha=0,
+        )
+
+        axis_contrast_curves_arcsec.set_xlim(
+            *fwhm_to_arcsec(lim_x)
+        )
+    # ----------- Labels and fontsizes --------------------------
+    
+        axis_contrast_curves_arcsec.set_xlabel(
+            "Separation [arcsec]", size=16
+        )
+        axis_contrast_curves_arcsec.tick_params(
+            axis='both', which='major', labelsize=14)
+    
+        axis_contrast_curves.set_xlabel(
+            "Separation [FWHM]", size=16
+        )
+    else:
+        axis_contrast_curves.set_xlabel(
+            "Separation [FWHM]", size=16
+        )
+
+    axis_contrast_curves.set_ylabel(
+        r"Planet-to-star flux ratio", size=16)
+    axis_contrast_curves_mag.set_ylabel(
+        r"$\Delta$ Magnitude", size=16)
+
+    axis_contrast_curves.tick_params(
+        axis='both', which='major', labelsize=14)
+
+    axis_contrast_curves_mag.tick_params(
+        axis='both', which='major', labelsize=14)
+
+    # axis_contrast_curves_mag.set_title(
+    #     r"$5 \sigma_{\mathcal{N}}$ Contrast Curves",
+    #     fontsize=18, fontweight="bold", y=1.1)
+
+
+
+    # sep_lambda_arcse = interpolate.interp1d(
+    #     x,
+    #     separations_FWHM,
+    #     fill_value='extrapolate')
+
+    # axis_contrast_curvse_mag = axis_contrast_curvse.twinx()
+    # axis_contrast_curvse_mag.plot(
+    #     separations_arcsec,
+    #     flux_ratio2mag(tmp_flux_ratios),
+    #     alpha=0.)
+    # axis_contrast_curvse_mag.invert_yaxis()
+
+    # axis_contrast_curvse_lambda = axis_contrast_curvse.twiny()
+    # axis_contrast_curvse_lambda.plot(
+    #     separations_FWHM,
+    #     tmp_flux_ratios,
+    #     alpha=0.)
+
+    # axis_contrast_curvse.grid(which='both')
+    # axis_contrast_curvse_mag.set_ylim(*lim_mag_y)
+    # axis_contrast_curvse.set_ylim(
+    #     mag2flux_ratio(lim_mag_y[0]),
+    #     mag2flux_ratio(lim_mag_y[1]))
+
+    # axis_contrast_curvse.set_xlim(
+    #     *lim_x)
+    # axis_contrast_curvse_mag.set_xlim(
+    #     *lim_x)
+    # axis_contrast_curvse_lambda.set_xlim(
+    #     *sep_lambda_arcse(lim_x))
+
+    # # ----------- Labels and fontsizes --------------------------
+    # axis_contrast_curvse.set_xlabel(
+    #     r"Separation [arcsec]", size=16)
+    # axis_contrast_curvse_lambda.set_xlabel(
+    #     r"Separation [FWHM]", size=16)
+
+    # axis_contrast_curvse.set_ylabel(
+    #     r"Planet-to-star flux ratio", size=16)
+    # axis_contrast_curvse_mag.set_ylabel(
+    #     r"$\Delta$ Magnitude", size=16)
+
+    # axis_contrast_curvse.tick_params(
+    #     axis='both', which='major', labelsize=14)
+    # axis_contrast_curvse_lambda.tick_params(
+    #     axis='both', which='major', labelsize=14)
+    # axis_contrast_curvse_mag.tick_params(
+    #     axis='both', which='major', labelsize=14)
+
+    if title:
+        set_title = title
+    else:
+        set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
+    axis_contrast_curves_mag.set_title(
+        set_title,
+        fontsize=18, fontweight="bold", y=1.1)
+
+    # --------------------------- Legend -----------------------
+    handles, labels = axis_contrast_curves.\
+        get_legend_handles_labels()
+
+    leg1 = fig.legend(handles, labels,
+                    bbox_to_anchor=(0.12, -0.1),
+                    fontsize=14,
+                    title="# PCA components",
+                    loc='lower left', ncol=8)
+
+    _=plt.setp(leg1.get_title(),fontsize=14)
+
+

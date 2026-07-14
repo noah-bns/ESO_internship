@@ -7,7 +7,7 @@ from functions import *
 
 import numpy as np
 import os
-
+import shutil
 #import seaborn as sns
 
 import matplotlib.gridspec as gridspec
@@ -32,7 +32,7 @@ frame_rate  = 1/400 #s
 dit_science = 4e-3  #s
 dit_psf     = 10    #s
 pixel_size  = None #arcsec
-LambdaD     = 4     #pixels
+#LambdaD     = 4     #pixels
 n_psf       = round(dit_psf/dit_science)
 
 radius_psf  = 10
@@ -79,7 +79,7 @@ datasets = {
 
 algorithms = {
     "PCAD": "PCAD",
-    #"CADI": "CADI",
+    "CADI": "CADI",
 }
 
 curves = {}
@@ -89,16 +89,16 @@ curves = {}
 name                    = 'test_grid'
 grid                    = True
 flux_ratio_mag          = 16
-flux_ratios_mag         = np.linspace(7, 15, 5)
+flux_ratios_mag         = np.linspace(2, 17, 5)
 num_fake_planets        = 3
-components              = [5, 10] 
+components              = [5, 10,20, 30, 40, 100] 
 scaling_factor          = 1.0  # A factor to account e.g. for ND filters
 angles                  = np.linspace(0, 30, np.shape(sc_img_int)[0])   #parang[::10]
 angles                  = np.deg2rad(angles)
 flux_ratio              = mag2flux_ratio(flux_ratio_mag)
 flux_ratios             = mag2flux_ratio(flux_ratios_mag)
 separation              = 1
-max_separation          = 0.5                                           #in fraction of total image radius
+max_separation          = 1                                           #in fraction of total image radius
 approx_svd_trunc        = round(np.shape(sc_img_int)[0] / 5)
 device                  = 'cpu'                                        #'cpu'
 #-----------
@@ -109,6 +109,11 @@ for dataset_name, dataset in datasets.items():
             path = f"/home/aosimul/noah/results/contrast_grid/{name}_{dataset_name}_{algo_name}"
         else:
             path = f"/home/aosimul/noah/results/contrast_curves/{name}_{dataset_name}_{algo_name}"
+
+        if os.path.exists(path):
+            shutil.rmtree(Path(path))
+            print(f"Removed existing directory to avoid overwrites: {path}.")
+
         if not os.path.exists(path):
             os.makedirs(path)
             
@@ -127,7 +132,7 @@ for dataset_name, dataset in datasets.items():
         separations = seps, 
         approx_svd = approx_svd_trunc if approx_svd_trunc else -1,
         device= device)
-        curves[(dataset_name, algo_name)] = compute_contrast_curves(contrast_instance, dataset["fwhm"], pixel_scale=pixel_size,  photometry = 'AS', test = 't-test', grid = grid)
+        # curves[(dataset_name, algo_name)] = compute_contrast_curves(contrast_instance, dataset["fwhm"], pixel_scale=pixel_size,  photometry = 'AS', test = 't-test', grid = grid)
 
     # # save the contrast curves in a single dataframe
     # (curve, err) = curves[(dataset_name, "PCAD")]
