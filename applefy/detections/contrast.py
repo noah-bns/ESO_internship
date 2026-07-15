@@ -185,10 +185,13 @@ class Contrast:
             :meth:`~compute_analytic_contrast_curves` and
             :meth:`~compute_contrast_grids`.
         """
+        
+        print("THIS VERSION HAS BEEN MODIFIED.")
 
         # 1.) Create an instance of Contrast
         contrast_instance = cls(
-            science_sequence=np.empty(0),
+            science_sequence=np.zeros((1, 1, 1)),
+            #science_sequence=np.empty(0),
             psf_template=psf_template,
             psf_fwhm_radius=psf_fwhm_radius,
             parang_rad=np.empty(0),
