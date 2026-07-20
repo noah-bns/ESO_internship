@@ -16,14 +16,15 @@ root_dir = Path(".")
 print(root_dir)
 
 
-from applefy_fixed.applefy.detections.contrast import Contrast
-from applefy_fixed.applefy.utils.photometry import AperturePhotometryMode
-from applefy_fixed.applefy.statistics import TTest, gaussian_sigma_2_fpf, \
+from applefy_extensions.contrast_curves import ContrastFast
+from applefy.detections.contrast import Contrast
+from applefy.utils.photometry import AperturePhotometryMode
+from applefy.statistics import TTest, gaussian_sigma_2_fpf, \
     fpf_2_gaussian_sigma, LaplaceBootstrapTest
 
-from applefy_fixed.applefy.utils.file_handling import load_adi_data
-from applefy_fixed.applefy.utils import flux_ratio2mag, mag2flux_ratio
-from applefy_fixed.applefy.utils.positions import center_subpixel
+from applefy.utils.file_handling import load_adi_data
+from applefy.utils import flux_ratio2mag, mag2flux_ratio
+from applefy.utils.positions import center_subpixel
 
 
 frame_rate  = 1/400 #s
@@ -33,7 +34,7 @@ pixel_size  = None #arcsec
 #LambdaD     = 4     #pixels
 n_psf       = round(dit_psf/dit_science)
 
-radius_psf  = 10
+radius_psf  = 50
 radius_sc   = 50
 
 sc_img_int  = np.load('/home/aosimul/noah/data/ghost_images/4ms/stg2_int.npy')
@@ -42,19 +43,19 @@ psf_pred    = np.load('/home/aosimul/noah/data/ghost_images/4ms/psf_pred.npy')
 psf_int     = np.load('/home/aosimul/noah/data/ghost_images/4ms/psf_int.npy')
 # sc_img_int  = sc_img_int[:, ]
 # psf_int     = np.sum(sc_img_int[:n_psf],  axis = 0)
-# psf_int     = zoom_to_peak(psf_int, radius)
+# psf_int     = zoom_to_peak(psf_int, radius_psf)
 # psf_pred    = np.sum(sc_img_pred[:n_psf], axis = 0)
-# psf_pred    = zoom_to_peak(psf_pred, radius)
+# psf_pred    = zoom_to_peak(psf_pred, radius_psf)
 
 sc_img_int     = sc_img_int[:, radius_sc:-radius_sc, radius_sc:-radius_sc]
 sc_img_pred    = sc_img_pred[:, radius_sc:-radius_sc, radius_sc:-radius_sc]
-psf_pred       = psf_pred[radius_psf:-radius_psf, radius_psf:-radius_psf]
-psf_int        = psf_int[radius_psf:-radius_psf, radius_psf:-radius_psf]
+# psf_pred       = psf_pred[radius_psf:-radius_psf, radius_psf:-radius_psf]
+# psf_int        = psf_int[radius_psf:-radius_psf, radius_psf:-radius_psf]
 
-binning        = 5
-sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
-sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
-dit_science    = dit_science*binning
+# binning        = 5
+# sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
+# sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
+# dit_science    = dit_science*binning
 
 # CREATE DATASETS
 datasets = {
@@ -73,7 +74,7 @@ datasets = {
         "dit_psf"       : dit_psf,          #s of integration time
         "dit_science"   : dit_science,  
     },
-}
+ }
 
 algorithms = {
     "PCAD": "PCAD",
@@ -84,12 +85,12 @@ curves = {}
 
 #FILL
 #-----------
-name                    = 'test_grid'
+name                    = 'test_grid_nobin'
 grid                    = True
 flux_ratio_mag          = 16
-flux_ratios_mag         = np.linspace(2, 17, 4)
-num_fake_planets        = 3
-components              = [20, 100] 
+flux_ratios_mag         = np.linspace(4, 17, 10)
+num_fake_planets        = 2
+components              = [5, 20, 50, 100, 150] 
 scaling_factor          = 1.0  # A factor to account e.g. for ND filters
 angles                  = np.linspace(0, 30, np.shape(sc_img_int)[0])   #parang[::10]
 angles                  = np.deg2rad(angles)
@@ -115,13 +116,14 @@ for dataset_name, dataset in datasets.items():
         if not os.path.exists(path):
             os.makedirs(path)
             
-        contrast_instance = Contrast(
+        contrast_instance = ContrastFast(
             science_sequence    =dataset["sci_img"],
             psf_template        =dataset["psf"],
             parang_rad          =angles,
             psf_fwhm_radius     =dataset["fwhm"] / 2, # Diameter in pixel
             dit_psf_template    =dataset["dit_psf"], 
             dit_science         =dataset["dit_science"],  # integration time
+            device              = device,
             scaling_factor      =scaling_factor, # A factor to account e.g. for ND filters
             checkpoint_dir      =root_dir / Path(path)
             )
