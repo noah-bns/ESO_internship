@@ -222,7 +222,7 @@ def pca_psf_subtraction_gpu(
         raise ValueError("All PCA numbers should be >= 1.")
 
     with torch.no_grad():
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
 
         # 1.) Convert images to torch tensor
         im_shape = images.shape
@@ -230,8 +230,8 @@ def pca_psf_subtraction_gpu(
         n_frames, height, width = im_shape
         images_torch = torch.as_tensor(images, device=device, dtype=dtype)
 
-        t1 = time.perf_counter()
-        print(f"[Timing] Convert to tensor: {t1 - t0:.6f}s")
+        # t1 = time.perf_counter()
+        # print(f"[Timing] Convert to tensor: {t1 - t0:.6f}s")
 
         # 2.) remove the mean as needed for PCA
         images_torch = images_torch - images_torch.mean(dim=0)
@@ -295,7 +295,7 @@ def pca_psf_subtraction_gpu(
             print(f"[DONE] (method: {method_used})")
 
         t2 = time.perf_counter()
-        print(f"[Timing] Compute PCA Basis: {t2 - t1:.6f}s")
+        # print(f"[Timing] Compute PCA Basis: {t2 - t1:.6f}s")
 
         # 5.) Build rotation model
         rotation_model = FieldRotationModel(
@@ -306,8 +306,8 @@ def pca_psf_subtraction_gpu(
             register_grid=True,
         ).to(device)
 
-        t3 = time.perf_counter()
-        print(f"[Timing] Field rotation: {t3 - t2:.6f}s")
+        # t3 = time.perf_counter()
+        # print(f"[Timing] Field rotation: {t3 - t2:.6f}s")
 
         # 6.) Compute PCA residuals for all given PCA numbers
         pca_residuals = []
@@ -360,11 +360,11 @@ def pca_psf_subtraction_gpu(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        t4 = time.perf_counter()
-        print(f"[Timing] PCA Residuals: {t4 - t3:.6f}s")
-        print(f"[Timing] pca_psf_subtraction_gpu: {t4 - t0:.6f}s")
-        print(f"Allocated: {torch.cuda.memory_allocated()/1024**3:.3f}GB")
-        print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
+        # t4 = time.perf_counter()
+        # print(f"[Timing] PCA Residuals: {t4 - t3:.6f}s")
+        # print(f"[Timing] pca_psf_subtraction_gpu: {t4 - t0:.6f}s")
+        # print(f"Allocated: {torch.cuda.memory_allocated()/1024**3:.3f}GB")
+        # print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
 
         return np.array(pca_residuals)
 
