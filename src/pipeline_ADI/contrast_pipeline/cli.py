@@ -1,21 +1,13 @@
 import argparse
 
-from .pipeline import (
-    load_config,
-    run_pipeline
-)
+from .post_processing import load_config, run_pipeline
 
 
 def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "-c",
-        "--config",
-        required=True,
-        help="Path to YAML config"
-    )
+    parser.add_argument("-c", "--config", required=True, help="Path to YAML config")
 
     args = parser.parse_args()
 

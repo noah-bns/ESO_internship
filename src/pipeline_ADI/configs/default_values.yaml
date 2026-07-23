@@ -25,6 +25,7 @@ instrument:
   radius_psf: 20                      # Radius used when centering/extracting the PSF. Units: pixels
   radius_sc: null                     # Radius used when centering/extracting the science image. Units: pixels
   dit_factor: null                    # science DIT multiplication factor. If null, the pipeline will use the images without increasing the DIT.    
+  pixel_size: null                    # Pixel scale. Units: arcsec/pixel
 
 fake_planet:
   path: "results/fake_planets"        # Root directory for checkpoints.

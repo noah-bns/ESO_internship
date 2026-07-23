@@ -10,6 +10,7 @@ import importlib
 import shutil
 from typing import Tuple, Callable, Optional
 from typing import List, Dict, Union
+import pandas as pd
 
 #images
 import torch
@@ -19,22 +20,17 @@ from astropy.visualization import LogStretch, ImageNormalize, AsinhStretch
 from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
 from scipy.ndimage import center_of_mass
+import matplotlib.gridspec as gridspec
+import seaborn as sns
 
 #scientific libraries
-from hcipy import *
-import applefy
-importlib.reload(applefy)
-#importlib.reload(applefy.detections.contrast)
-#from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
 from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest
-
-import fours
-importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
 from applefy.detections.contrast import Contrast
+from applefy_extensions.contrast_curves import ContrastFast
 
 
 
@@ -42,7 +38,7 @@ import numpy as np
 from skimage.registration import phase_cross_correlation
 
 
-def estimate_center(stack, nframes=1000, upsample_factor=1000,
+def estimate_center(stack, nframes=1000, upsample_factor=100,
                     max_iter=100, tol=1e-3):
     """
     Estimate the center of a stack from the median of the first nframes
@@ -141,12 +137,34 @@ def zoom_to_peak(
     - 'com' for center of mass, https://docs.scipy.org/doc/scipy-1.18.0/reference/generated/scipy.ndimage.center_of_mass.html
     - 'max' for maximum pixel value
     """
-    if method == 'com':
-        coords_maxpsf = (np.round(np.array(center_of_mass(img))).astype(int))
-    if method == 'max':
-        coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
+#     if method == 'com':
+#         coords_maxpsf = (np.round(np.array(center_of_mass(img))).astype(int))
+#     if method == 'max':
+#         coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
 
-    img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
+#     img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
+#     return img
+
+    if img.ndim == 2:
+        ref = img
+    elif img.ndim == 3:
+        ref = np.median(img[:10], axis=0) # bcs already centred, not np.median(img, axis=0)   # or np.mean(img, axis=0)
+    else:
+        raise ValueError("img stack must be 2D or 3D")
+
+    if method == "com":
+        y, x = np.round(center_of_mass(ref)).astype(int)
+    elif method == "max":
+        y, x = np.unravel_index(np.argmax(ref), ref.shape)
+    else:
+        raise ValueError("Unknown method")
+
+    img = img[
+        ...,
+        y - radius : y + radius + 1,
+        x - radius : x + radius + 1,
+    ]
+
     return img
 
 
@@ -188,6 +206,7 @@ def fake_planet_experiment(
     separations: np.ndarray,
     algo_name: str,
     angles: np.ndarray,
+    #grid: bool
 ) -> object:
     """
     Run fake planet injection experiment with config-driven parameters.
@@ -223,14 +242,18 @@ def fake_planet_experiment(
         exist_ok=True
     )
 
-    flux_ratio = mag2flux_ratio(fp_config['flux_ratio_mag'])
+    flux_ratio = fp_config['flux_ratio_mag']
+    if isinstance(flux_ratio, list):
+        flux_ratio = np.array(flux_ratio)
+    flux_ratio = mag2flux_ratio(flux_ratio)
 
-    contrast_instance = Contrast(
+    contrast_instance = ContrastFast(
         science_sequence=dataset["sci_img"],
         psf_template=dataset["psf"],
         parang_rad=angles,
         psf_fwhm_radius=dataset["fwhm"] / 2,
         dit_psf_template=dataset["dit_psf"],
+        device = fp_config['device'],
         dit_science=dataset["dit_science"],
         scaling_factor=fp_config["scaling_factor"],
         checkpoint_dir= output_path
@@ -247,6 +270,7 @@ def fake_planet_experiment(
     # num_parallel = cpu_count()//2
 
     if algo_name == 'PCAD':
+
         algorithm_function = PCADataReductionGPU(
             pca_numbers=fp_config['components'],
             device=fp_config['device'],
@@ -258,11 +282,12 @@ def fake_planet_experiment(
             subsample_rotation_grid=fp_config['subsample_rotation_grid'],
             combine=fp_config['combine'],
         )
-
+            
     if algo_name == 'CADI':
+    
         algorithm_function = CADIDataReductionGPU(
             device = fp_config['device']
-                )
+        )
         
     # try:
     #     contrast_instance.run_fake_planet_experiments(
@@ -383,7 +408,7 @@ def compute_contrast(
         return contrast_curves, contrast_errors
     
     if grid == True:
-        contrast_curves_grid, contrast_grids = contrast_instance.compute_analytic_contrast_grids(
+        contrast_curves_grid, contrast_grids = contrast_instance.compute_contrast_grids(
             statistical_test=statistical_test,
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
             num_rot_iter=20,
@@ -419,4 +444,188 @@ def plot_contrast_grid(
     xlabels = ['{:.1f}'.format(float(x.get_text()))
                for x in heat.get_xticklabels()]
     _=heat.set_xticklabels(xlabels)
+
+
+def plot_contrast_curves(
+    contrast_curves, 
+    lim_mag_y,
+    contrast_errors = None, 
+    lim_x = None, 
+    title = None,
+    cmap = "magma",
+    alpha = 0.7,
+    ):
+
+    # compute the overall best contrast curve
+    PADI_values = contrast_curves.loc[:, ~contrast_curves.columns.str.contains("cADI", regex=True)]
+    if len(PADI_values.columns) > 0:
+        overall_best = np.min(PADI_values.values, axis=1)
+
+        # get the error bars of the the overall best contrast curve
+        best_idx = np.argmin(PADI_values.values, axis=1)
+
+        # Find one color for each number of PCA components used
+        color_map = plt.cm.get_cmap(cmap)   # seaborn-style colormap available in mpl
+        colors = [color_map(int(i)) for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))]
+
+    if isinstance(contrast_curves.index, pd.MultiIndex):
+        separations_arcsec = contrast_curves.index.get_level_values(0)
+        separations_FWHM = contrast_curves.index.get_level_values(1)
+
+        x = separations_FWHM        # bottom axis
+        x_top = separations_arcsec  # top axis
+        multi_index = True
+    else:
+        x = contrast_curves.index
+        multi_index = False
+
+    # 1.) Create Plot Layout
+    fig = plt.figure(constrained_layout=False, figsize=(12, 8))
+    gs0 = fig.add_gridspec(1, 1)
+    axis_contrast_curves = fig.add_subplot(gs0[0, 0])
+
+
+    # ---------------------- Create the Plot --------------------
+    i = 0 # color picker
+    for tmp_model in contrast_curves.columns:
+        
+        if 'cADI'.lower() in tmp_model.lower():
+            num_components = 'cADI'
+            color = 'red'
+        else:
+            num_components = int(tmp_model[5:8])
+            color = colors[i]
+            i+=1
+        tmp_flux_ratios = contrast_curves.reset_index(
+            level=0)[tmp_model].values
+
+
+        axis_contrast_curves.plot(
+            x,
+            tmp_flux_ratios,
+            color = color,
+            alpha = alpha,
+            label=num_components)
+
+        if contrast_errors is not None:
+            tmp_errors = contrast_errors.reset_index(
+                level=0)[tmp_model].values
+            
+            axis_contrast_curves.fill_between(
+                x,
+                tmp_flux_ratios + tmp_errors,
+                tmp_flux_ratios - tmp_errors,
+                color = color,
+                alpha=alpha/2)
+            
+            if len(PADI_values.columns) > 0:
+                best_contrast_errors = contrast_errors.values[np.arange(len(best_idx)), best_idx]
+
+                axis_contrast_curves.fill_between(
+                    x,
+                    overall_best + best_contrast_errors,
+                    overall_best - best_contrast_errors,
+                    color = 'blue',
+                    alpha=alpha/2)
+
+    axis_contrast_curves.set_yscale("log")
+    # ------------ Plot the overall best -------------------------
+    if len(PADI_values.columns) > 0:
+        axis_contrast_curves.plot(
+            x,
+            overall_best,
+            color = "blue",
+            lw=3,
+            ls="--",
+            label="Best")
+
+    # ------------- Double axis and limits -----------------------
+    if lim_x:
+        lim_x = lim_x
+    else:
+        lim_x = (np.min(x) - 0.01, np.max(x) + 0.01)
+
+
+    axis_contrast_curves_mag = axis_contrast_curves.twinx()
+    axis_contrast_curves_mag.plot(
+        x,
+        flux_ratio2mag(tmp_flux_ratios),
+        alpha=0.)
+    axis_contrast_curves_mag.invert_yaxis()
+
+
+    axis_contrast_curves.grid(which='both')
+    axis_contrast_curves_mag.set_ylim(*lim_mag_y)
+    axis_contrast_curves.set_ylim(
+        (mag2flux_ratio(lim_mag_y[0])),
+        (mag2flux_ratio(lim_mag_y[1])))
+
+    axis_contrast_curves.set_xlim(*lim_x)
+    axis_contrast_curves_mag.set_xlim(*lim_x)
+
+
+    if multi_index:
+        fwhm_to_arcsec = interpolate.interp1d(
+            separations_FWHM,
+            separations_arcsec,
+            fill_value="extrapolate"
+        )
+
+        axis_contrast_curves_arcsec = axis_contrast_curves.twiny()
+        axis_contrast_curves_arcsec.plot(
+            separations_arcsec,
+            tmp_flux_ratios,
+            alpha=0,
+        )
+
+        axis_contrast_curves_arcsec.set_xlim(
+            *fwhm_to_arcsec(lim_x)
+        )
+    # ----------- Labels and fontsizes --------------------------
     
+        axis_contrast_curves_arcsec.set_xlabel(
+            "Separation [arcsec]", size=16
+        )
+        axis_contrast_curves_arcsec.tick_params(
+            axis='both', which='major', labelsize=14)
+    
+        axis_contrast_curves.set_xlabel(
+            "Separation [FWHM]", size=16
+        )
+    else:
+        axis_contrast_curves.set_xlabel(
+            "Separation [FWHM]", size=16
+        )
+
+    axis_contrast_curves.set_ylabel(
+        r"Planet-to-star flux ratio", size=16)
+    axis_contrast_curves_mag.set_ylabel(
+        r"$\Delta$ Magnitude", size=16)
+
+    axis_contrast_curves.tick_params(
+        axis='both', which='major', labelsize=14)
+
+    axis_contrast_curves_mag.tick_params(
+        axis='both', which='major', labelsize=14)
+
+    # # ----------- Labels and fontsizes --------------------------
+    if title:
+        set_title = title
+    else:
+        set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
+    axis_contrast_curves_mag.set_title(
+        set_title,
+        fontsize=18, fontweight="bold", y=1.1)
+
+    # --------------------------- Legend -----------------------
+    handles, labels = axis_contrast_curves.\
+        get_legend_handles_labels()
+
+    leg1 = fig.legend(handles, labels,
+                    bbox_to_anchor=(0.12, -0.1),
+                    fontsize=14,
+                    title="# PCA components",
+                    loc='lower left', ncol=8)
+
+    _=plt.setp(leg1.get_title(),fontsize=14)
+

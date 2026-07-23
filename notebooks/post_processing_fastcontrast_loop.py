@@ -1,4 +1,5 @@
 # from astropy.modeling import models, fitting
+
 import importlib
 import utils.functions as func
 importlib.reload(func)
@@ -15,8 +16,13 @@ print(root_dir)
 
 
 from applefy_extensions.contrast_curves import ContrastFast
-from applefy.utils import mag2flux_ratio
+from fours.detection_limits.applefy_wrapper import (
+    CADIDataReductionGPU,
+    PCADataReductionGPU,
+)
+from applefy.utils import  mag2flux_ratio
 from applefy.utils.positions import center_subpixel
+
 
 
 frame_rate = 1 / 400  # s
@@ -151,60 +157,58 @@ for dataset_name, dataset in datasets.items():
         overwrite=True,
     )
 
-    first_algo = next(iter(algorithms))
-
-    contrast_instance = fake_planet_experiment(
-        contrast_instance,
-        flux_ratios,
-        num_fake_planets,
-        components,
-        version=first_algo,
-        separations=seps,
-        # approx_svd = approx_svd_trunc if approx_svd_trunc else -1,
-        device=device,
+    # 5.) Run cADI ------------------------------------------------------------
+    cadi_algorithm_function = CADIDataReductionGPU(0)
+    contrast_instance.run_fake_planet_experiments(
+        algorithm_function=cadi_algorithm_function, num_parallel=1
     )
 
-    for algo_name, alg in list(algorithms.items())[1:]:
+    old_results = contrast_instance.results_dict
 
-        old_results = contrast_instance.results_dict
+    work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
+    work_dir.mkdir(exist_ok=True)
 
-        contrast_instance = fake_planet_experiment(
-            contrast_instance,
-            flux_ratios,
-            num_fake_planets,
-            components,
-            version=alg,
-            separations=seps,
-            # approx_svd = approx_svd_trunc if approx_svd_trunc else -1,
-            device=device,
-        )
-        contrast_instance.results_dict.update(old_results)
-
-        # save the contrast instance as pickle
-        print("Saving the contrast instance to disk ...", end=" ")
-        contrast_instance_file = contrast_result_dir / Path(
-            dataset_name + "_contrast_instance.pkl"
-        )
-
-        with open(contrast_instance_file, "wb") as f:
-            pickle.dump(contrast_instance, f)
-
-    contrast_grids = compute_contrast_curves(
-        contrast_instance,
-        dataset["fwhm"],
-        pixel_scale=pixel_size,
-        photometry="AS",
-        test="t-test",
-        grid=grid,
+    pca_algorithm_function = PCADataReductionGPU(
+        approx_svd=max(components)*10,  # needed due to limited GPU memory
+        pca_numbers=np.array(components),
+        device=0,
+        work_dir=work_dir,
+        special_name="try_pipeline",
+        verbose=False,
     )
 
-    # save the contrast grids
-    print("Saving the contrast grids to disk ...", end=" ")
-    contrast_grids_file = contrast_result_dir / Path(
-        dataset_name + "_contrast_grids.pkl"
+    contrast_instance.run_fake_planet_experiments(
+        algorithm_function=pca_algorithm_function, num_parallel=1
     )
 
-    with open(contrast_grids_file, "wb") as f:
-        pickle.dump(contrast_grids, f)
 
-    print("[DONE]")
+    contrast_instance.results_dict.update(old_results)
+
+    # save the contrast instance as pickle
+    print("Saving the contrast instance to disk ...", end=" ")
+    contrast_instance_file = contrast_result_dir / Path(
+        dataset_name + "_contrast_instance.pkl"
+    )
+
+    with open(contrast_instance_file, "wb") as f:
+        pickle.dump(contrast_instance, f)
+
+contrast_grids = compute_contrast_curves(
+    contrast_instance,
+    dataset["fwhm"],
+    pixel_scale=pixel_size,
+    photometry="AS",
+    test="t-test",
+    grid=grid,
+)
+
+# save the contrast grids
+print("Saving the contrast grids to disk ...", end=" ")
+contrast_grids_file = contrast_result_dir / Path(
+    dataset_name + "_contrast_grids.pkl"
+)
+
+with open(contrast_grids_file, "wb") as f:
+    pickle.dump(contrast_grids, f)
+
+print("[DONE]")

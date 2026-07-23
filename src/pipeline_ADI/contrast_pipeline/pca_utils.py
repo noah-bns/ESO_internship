@@ -19,17 +19,17 @@ def _get_pca_fitter(
     n_samples: int,
     n_pixels: int,
     gram_threshold: float = 1.0,  # can change those values to
-    oversample: int = 10,         # adjust the auto-selection
-    niter: int = 2,               # of PCA method
+    oversample: int = 10,  # adjust the auto-selection
+    niter: int = 2,  # of PCA method
     eps: float | None = None,
     approx_svd_trunc: int | None = None,
 ) -> Tuple[Callable, str]:
     """
     Select and return the appropriate PCA fitting function based on method and data shape.
-    
+
     Returns a callable that takes (X) and returns (components, singular_values).
     """
-    
+
     # Auto-select method if needed
     if pca_method == "auto":
         if n_components >= 0.1 * min(n_samples, n_pixels):
@@ -40,51 +40,53 @@ def _get_pca_fitter(
             method = "lowrank"
     else:
         method = pca_method
-    
+
     if method == "svd":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Exact reduced SVD."""
             _, S, Vh = torch.linalg.svd(X, full_matrices=False)
             components = Vh[:n_components]
-            #singular_values = S[:n_components]
-            return components #, singular_values
-        
+            # singular_values = S[:n_components]
+            return components  # , singular_values
+
         return fitter, method
-    
+
     elif method == "gram":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Exact PCA via sample Gram matrix."""
             eps_val = eps if eps is not None else float(torch.finfo(X.dtype).eps)
-            
+
             C = X @ X.T  # (n_samples, n_samples)
             evals, U = torch.linalg.eigh(C)
-            
+
             # Sort by largest eigenvalues
             idx = torch.argsort(evals, descending=True)
             evals = evals[idx]
             U = U[:, idx]
-            
+
             evals = evals[:n_components]
             U = U[:, :n_components]
-            
+
             singular_values = torch.sqrt(torch.clamp(evals, min=0.0))
-            
+
             # Filter out invalid singular values
             valid = singular_values > eps_val
             if not torch.any(valid):
                 raise RuntimeError("All singular values are numerically zero.")
-            
+
             U_valid = U[:, valid]
             S_valid = singular_values[valid]
-            
+
             # Compute right singular vectors: V = X.T @ U @ diag(1/S)
             V = X.T @ (U_valid / S_valid)
-            
+
             # Improve numerical orthogonality
             V, _ = torch.linalg.qr(V, mode="reduced")
-            
+
             components = V[:, :n_components].T
-            
+
             # Pad if needed to maintain consistent shapes
             if components.shape[0] < n_components:
                 missing = n_components - components.shape[0]
@@ -95,7 +97,7 @@ def _get_pca_fitter(
                     dtype=X.dtype,
                 )
                 components = torch.cat([components, pad_components], dim=0)
-                
+
             #     pad_singular_values = torch.zeros(
             #         missing,
             #         device=X.device,
@@ -104,35 +106,40 @@ def _get_pca_fitter(
             #     singular_values = torch.cat([S_valid, pad_singular_values], dim=0)
             # else:
             #     singular_values = singular_values[:n_components]
-            
-            return components #, singular_values
-        
+
+            return components  # , singular_values
+
         return fitter, method
-    
+
     elif method == "lowrank":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Randomized approximate low-rank PCA."""
-            q = approx_svd_trunc if approx_svd_trunc is not None else max(
-                n_components + oversample,
-                (n_samples) // 5,
+            q = (
+                approx_svd_trunc
+                if approx_svd_trunc is not None
+                else max(
+                    n_components + oversample,
+                    (n_samples) // 5,
+                )
             )
-            
+
             _, S, V = torch.pca_lowrank(
                 X,
-                q= q ,
+                q=q,
                 center=False,
                 niter=niter,
             )
-            
+
             components = V[:, :n_components].T
-            #singular_values = S[:n_components]
-            return components #, singular_values
-        
+            # singular_values = S[:n_components]
+            return components  # , singular_values
+
         return fitter, method
-    
+
     else:
         raise ValueError(f"Invalid PCA method: {pca_method}")
-    
+
 
 # def pca_psf_subtraction_gpu(
 #         images: np.ndarray,
@@ -145,24 +152,25 @@ def _get_pca_fitter(
 #         combine: str = "mean"
 # ) -> np.ndarray:
 
+
 def pca_psf_subtraction_gpu(
-        images: np.ndarray,
-        angles: np.ndarray,
-        pca_numbers: np.ndarray,
-        device: str = "auto",
-        pca_method: str = "gram",
-        niter: int = 2,
-        random_state: int | None = None,
-        eps: float | None = None,
-        approx_svd_trunc: int | None = None,
-        subsample_rotation_grid: int = 1,
-        verbose: bool = False,
-        combine: str = "mean",
-        dtype: torch.dtype = torch.float32,
+    images: np.ndarray,
+    angles: np.ndarray,
+    pca_numbers: np.ndarray,
+    device: str = "auto",
+    pca_method: str = "gram",
+    niter: int = 2,
+    random_state: int | None = None,
+    eps: float | None = None,
+    approx_svd_trunc: int | None = None,
+    subsample_rotation_grid: int = 1,
+    verbose: bool = False,
+    combine: str = "mean",
+    dtype: torch.dtype = torch.float32,
 ) -> np.ndarray:
     """
     PCA-based PSF subtraction using different PCA methods.
-    
+
     Parameters
     ----------
     images : np.ndarray
@@ -195,16 +203,15 @@ def pca_psf_subtraction_gpu(
         Combination method: "mean" or "median"
     dtype : torch.dtype
         Data type for tensors
-    
+
     Returns
     -------
     np.ndarray
         Residual images with shape (len(pca_numbers), height, width)
     """
 
-
     if device == "auto":
-        device = ("cuda" if torch.cuda.is_available() else "cpu")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
     pca_numbers = np.asarray(pca_numbers, dtype=int)
 
@@ -213,14 +220,13 @@ def pca_psf_subtraction_gpu(
 
     if np.any(pca_numbers < 1):
         raise ValueError("All PCA numbers should be >= 1.")
-    
 
     with torch.no_grad():
         t0 = time.perf_counter()
 
         # 1.) Convert images to torch tensor
         im_shape = images.shape
-        #images_torch = torch.from_numpy(images).to(device)
+        # images_torch = torch.from_numpy(images).to(device)
         n_frames, height, width = im_shape
         images_torch = torch.as_tensor(images, device=device, dtype=dtype)
 
@@ -231,15 +237,14 @@ def pca_psf_subtraction_gpu(
         images_torch = images_torch - images_torch.mean(dim=0)
 
         # 3.) reshape images to fit for PCA
-        #images_flat = images_torch.view(im_shape[0], im_shape[1] * im_shape[2])
+        # images_flat = images_torch.view(im_shape[0], im_shape[1] * im_shape[2])
         images_flat = images_torch.reshape(n_frames, height * width)
-        
+
         # 4.) Fit PCA using PCATorch
         if verbose:
             print(f"Fit PCA ({pca_method}) ...", end="")
 
-        
-        #### 
+        ####
         # based off https://github.com/markusbonse/near_processing/blob/main/near_processing/utils/pca.py#L11 PCATorch class
         ####
 
@@ -255,7 +260,7 @@ def pca_psf_subtraction_gpu(
         #     random_state=random_state,
         #     eps=eps,
         # )
-        
+
         # pca.fit(images_flat)
 
         # Get the appropriate PCA fitter
@@ -280,7 +285,7 @@ def pca_psf_subtraction_gpu(
             n_pixels=height * width,
             niter=niter,
             eps=eps,
-            approx_svd_trunc=approx_svd_trunc
+            approx_svd_trunc=approx_svd_trunc,
         )
 
         # Fit PCA once
@@ -298,7 +303,7 @@ def pca_psf_subtraction_gpu(
             input_size=im_shape[1],
             subsample=subsample_rotation_grid,
             inverse=False,
-            register_grid=True
+            register_grid=True,
         ).to(device)
 
         t3 = time.perf_counter()
@@ -312,14 +317,13 @@ def pca_psf_subtraction_gpu(
         for pca_number in pca_numbers:
             pca_number = int(pca_number)
 
-
             # Project onto PCA components
             basis = components[:pca_number]
             pca_scores = images_flat @ basis.T  # shape: (n_frames, pca_number)
-            
+
             # Reconstruct noise model
             noise_estimate = pca_scores @ basis  # shape: (n_frames, n_features)
-            
+
             # Compute residuals
             residual = images_flat - noise_estimate
             residual_sequence = residual.view(im_shape[0], im_shape[1], im_shape[2])
@@ -327,12 +331,14 @@ def pca_psf_subtraction_gpu(
 
             # Subtract temporal median if not using mean combine
             if combine != "mean":
-                residual_sequence = residual_sequence - torch.median(residual_sequence, dim=0)[0]
+                residual_sequence = (
+                    residual_sequence - torch.median(residual_sequence, dim=0)[0]
+                )
 
             # Derotate frames
             rotated_frames = rotation_model(
                 residual_sequence.unsqueeze(1).float(),
-                parang_idx=torch.arange(len(residual_sequence), device=device)
+                parang_idx=torch.arange(len(residual_sequence), device=device),
             ).squeeze(1)
             del residual_sequence
 
@@ -343,7 +349,7 @@ def pca_psf_subtraction_gpu(
                 residual_final = torch.median(rotated_frames, dim=0)[0].cpu().numpy()
             else:
                 raise ValueError(f"Invalid combine method: {combine}")
-            
+
             pca_residuals.append(residual_final)
             del rotated_frames, residual_final
 
@@ -361,7 +367,6 @@ def pca_psf_subtraction_gpu(
         print(f"Reserved: {torch.cuda.memory_reserved()/1024**3:.3f}GB")
 
         return np.array(pca_residuals)
-    
 
 
 class PCADataReductionGPU(DataReductionInterface):
@@ -370,7 +375,7 @@ class PCADataReductionGPU(DataReductionInterface):
     """
 
     def __init__(
-            self,
+        self,
         pca_numbers: np.ndarray,
         work_dir: Union[str, Path] = None,
         special_name: str = None,
@@ -388,7 +393,7 @@ class PCADataReductionGPU(DataReductionInterface):
     ):
         """
         Initialize PCA Data Reduction.
-        
+
         Parameters
         ----------
         pca_numbers : np.ndarray
@@ -432,29 +437,30 @@ class PCADataReductionGPU(DataReductionInterface):
         self.subsample_rotation_grid = subsample_rotation_grid
         self.combine = combine
         self.verbose = verbose
-        
+
         self.work_dir = Path(work_dir) if work_dir is not None else None
         self.special_name = special_name if special_name is not None else ""
-
 
     def get_method_keys(self) -> List[str]:
         """Get result dictionary keys for each PCA number."""
 
-        keys = [self.special_name + "_PCA_" + str(num_pcas).zfill(3) +
-                "_components" for num_pcas in self.pca_numbers]
+        keys = [
+            self.special_name + "_PCA_" + str(num_pcas).zfill(3) + "_components"
+            for num_pcas in self.pca_numbers
+        ]
 
         return keys
-    
+
     def __call__(
-            self,
-            stack_with_fake_planet: np.ndarray,
-            parang_rad: np.ndarray,
-            psf_template: np.ndarray,
-            exp_id: str
+        self,
+        stack_with_fake_planet: np.ndarray,
+        parang_rad: np.ndarray,
+        psf_template: np.ndarray,
+        exp_id: str,
     ) -> Dict[str, np.ndarray]:
         """
         Execute PCA reduction.
-        
+
         Parameters
         ----------
         stack_with_fake_planet : np.ndarray
@@ -465,7 +471,7 @@ class PCADataReductionGPU(DataReductionInterface):
             PSF template (not used in new version)
         exp_id : str
             Experiment ID for logging
-        
+
         Returns
         -------
         dict
@@ -484,19 +490,21 @@ class PCADataReductionGPU(DataReductionInterface):
             approx_svd_trunc=self.approx_svd_trunc,
             subsample_rotation_grid=self.subsample_rotation_grid,
             verbose=self.verbose,
-            combine=self.combine
+            combine=self.combine,
         )
 
         if self.work_dir is not None:
             time_str = datetime.now().strftime("%Y-%m-%d-%Hh%Mm%Ss")
-            current_logdir = self.work_dir / \
-                Path(exp_id + "_" + self.special_name + "_PCA_" + time_str)
+            current_logdir = self.work_dir / Path(
+                exp_id + "_" + self.special_name + "_PCA_" + time_str
+            )
             current_logdir.mkdir(exist_ok=True, parents=True)
 
             pca_tensorboard_logging(
                 log_dir=current_logdir,
                 pca_residuals=pca_residuals,
-                pca_numbers=self.pca_numbers)
+                pca_numbers=self.pca_numbers,
+            )
 
         result_dict = dict()
         for idx, tmp_algo_name in enumerate(self.get_method_keys()):

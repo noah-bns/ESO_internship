@@ -9,7 +9,7 @@ __pycache__/
 # Environment
 .venv/
 venv/
-
+env_hci/
 
 # Large data files - DO NOT COMMIT
 data/
@@ -24,7 +24,7 @@ results/
 *.avi
 *gif
 /src/pipeline_ADI/results
-
+*.png
 
 # IDE
 .vscode/settings.json

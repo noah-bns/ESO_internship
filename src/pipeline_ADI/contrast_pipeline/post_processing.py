@@ -1,8 +1,6 @@
 from pathlib import Path
 import yaml
 import numpy as np
-import pandas as pd
-import shutil
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
 
@@ -11,10 +9,7 @@ from . import functions_ADI
 importlib.reload(functions_ADI)
 from .functions_ADI import *
 
-import applefy
-importlib.reload(applefy)
-from applefy.detections.contrast import Contrast
-from applefy.utils import mag2flux_ratio
+
 from applefy.utils.positions import center_subpixel
 from applefy.statistics import fpf_2_gaussian_sigma
 
@@ -242,10 +237,10 @@ def run_pipeline(config):
 
     root_dir = Path(".")
 
-    inst = config["instrument"]
-    fp = config["fake_planet"]
-    cnst = config["contrast"]
-    
+    inst    = config["instrument"]
+    fp      = config["fake_planet"]
+    cnst    = config["contrast"]
+    exp     = config['experiment']['name']
 
     algorithms = {
         k: k
@@ -326,9 +321,11 @@ def run_pipeline(config):
                 root_dir /
                 Path(
                 f"{fp["path"]}/"
-                f"{config['experiment']['name']}"
+                f"{exp}"
                 f"_{dataset_name}_{algo_name}"
             ))
+
+            grid = True if isinstance(fp['flux_ratio_mag'], (list, np.ndarray)) else False
 
             contrast_instance = fake_planet_experiment(
                     output_path = output_path,
@@ -336,18 +333,16 @@ def run_pipeline(config):
                     fp_config = fp,
                     separations = seps,
                     algo_name = algo_name,
-                    angles = angles
+                    angles = angles,
                     )
             
             # Compute contrast curves if enabled
             if cnst["enabled"]:
                 
-                print(f"Computing contrast curves for {dataset_name} - {algo_name}...")
-                
                 curves_output_path = (
                     root_dir /
                     Path(f"{cnst['path']}"
-                    f"/{config['experiment']['name']}"
+                    f"/{exp}"
                     )
                 )
                 
@@ -355,8 +350,6 @@ def run_pipeline(config):
                     parents=True,
                     exist_ok=True
                 )
-
-                grid = True if isinstance(fp['flux_ratio_mag'], (list, np.ndarray)) else False
 
                 dataset_contrast[algo_name] = compute_contrast(
                     contrast_instance,
@@ -369,15 +362,17 @@ def run_pipeline(config):
         
                 # Save grid results
                 if grid ==True:
-                    _save_grid_animation(dataset_contrast[algo_name][1], curves_output_path, dataset_name, algo_name)
-
+                    print(f"Computing contrast grid for {dataset_name} - {algo_name}...")
+                
+                    _save_grid_animation(dataset_contrast[algo_name][1], curves_output_path, exp+'_'+dataset_name, algo_name)
+        
 
 
 def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_name):
 
     keys = list(contrast_grids.keys())
 
-    fig = plt.figure(figsize=(8, 4))
+    fig = plt.figure(figsize=(7, 4))
 
     gs0 = fig.add_gridspec(1, 1)
     gs1 = gridspec.GridSpecFromSubplotSpec(
@@ -416,13 +411,14 @@ def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_
         contrast_ax.set_xlabel("Separation [FWHM]", fontsize=14)
 
         contrast_ax.set_title(
-            f"{dataset_name} {algo_name}: {key.replace("_", " ")}",
+            f"{dataset_name.replace("_", " ")}: {key.replace("_", " ")}",
             fontsize=16,
             fontweight="bold"
         )
 
         contrast_ax.tick_params(labelsize=12)
-
+        plt.subplots_adjust(bottom=0.2)
+        plt.close()
 
     ani = FuncAnimation(
         fig,
@@ -431,4 +427,5 @@ def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_
         interval=500
     )
 
-    ani.save(f"{curves_output_path}/GRID.gif", writer=PillowWriter(fps=2))
+    ani.save(f"{(curves_output_path)}/GRID_{dataset_name}_{algo_name}.gif", writer=PillowWriter(fps=1))
+    
