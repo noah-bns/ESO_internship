@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import warnings
-import os
+import os, re
 from multiprocessing import cpu_count
 from scipy import interpolate
 import importlib
@@ -26,7 +26,7 @@ import seaborn as sns
 #scientific libraries
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
-from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest
+from applefy.statistics import TTest, gaussian_sigma_2_fpf, fpf_2_gaussian_sigma, LaplaceBootstrapTest
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
 from applefy.detections.contrast import Contrast
@@ -200,6 +200,7 @@ def calculate_fwhm(
     
 
 def fake_planet_experiment(
+    contrast_instance,
     output_path: Path,
     dataset: dict,
     fp_config: dict,
@@ -232,44 +233,47 @@ def fake_planet_experiment(
         Updated contrast instance.
     """
 
-    # Remove existing directory and all its contents
-    if output_path.exists():
-        shutil.rmtree(output_path)
-        print(f"Removed existing directory to avoid overwrites: {output_path}.")
+    # # Remove existing directory and all its contents
+    # if output_path.exists():
+    #     shutil.rmtree(output_path)
+    #     print(f"Removed existing directory to avoid overwrites: {output_path}.")
 
-    output_path.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    # output_path.mkdir(
+    #     parents=True,
+    #     exist_ok=True
+    # )
 
-    flux_ratio = fp_config['flux_ratio_mag']
-    if isinstance(flux_ratio, list):
-        flux_ratio = np.array(flux_ratio)
-    flux_ratio = mag2flux_ratio(flux_ratio)
+    # flux_ratio = fp_config['flux_ratio_mag']
+    # if isinstance(flux_ratio, list):
+    #     flux_ratio = np.array(flux_ratio)
+    # flux_ratio = mag2flux_ratio(flux_ratio)
 
-    contrast_instance = ContrastFast(
-        science_sequence=dataset["sci_img"],
-        psf_template=dataset["psf"],
-        parang_rad=angles,
-        psf_fwhm_radius=dataset["fwhm"] / 2,
-        dit_psf_template=dataset["dit_psf"],
-        device = fp_config['device'],
-        dit_science=dataset["dit_science"],
-        scaling_factor=fp_config["scaling_factor"],
-        checkpoint_dir= output_path
-    )
+    # contrast_instance = ContrastFast(
+    #     science_sequence=dataset["sci_img"],
+    #     psf_template=dataset["psf"],
+    #     parang_rad=angles,
+    #     psf_fwhm_radius=dataset["fwhm"] / 2,
+    #     dit_psf_template=dataset["dit_psf"],
+    #     device = fp_config['device'],
+    #     dit_science=dataset["dit_science"],
+    #     scaling_factor=fp_config["scaling_factor"],
+    #     checkpoint_dir= output_path
+    # )
 
 
-    contrast_instance.design_fake_planet_experiments(
-        flux_ratios= flux_ratio,
-        num_planets=fp_config['num_fake_planets'],
-        separations = separations,
-        overwrite=True,
-        )
+    # contrast_instance.design_fake_planet_experiments(
+    #     flux_ratios= flux_ratio,
+    #     num_planets=fp_config['num_fake_planets'],
+    #     separations = separations,
+    #     overwrite=True,
+    #     )
 
     # num_parallel = cpu_count()//2
 
     if algo_name == 'PCAD':
+
+        work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
+
 
         algorithm_function = PCADataReductionGPU(
             pca_numbers=fp_config['components'],
@@ -278,6 +282,7 @@ def fake_planet_experiment(
             niter=fp_config['niter'],
             random_state=fp_config['random_state'],
             eps=fp_config['eps'],
+            work_dir = work_dir,
             approx_svd_trunc=fp_config['approx_svd_trunc'],
             subsample_rotation_grid=fp_config['subsample_rotation_grid'],
             combine=fp_config['combine'],
@@ -366,7 +371,7 @@ def compute_contrast(
 
     if photometry == 'FS':# Use spaced pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "FS", # or "P"
+            "F", # or "P"
             psf_fwhm_radius=fwhm/2,
             search_area=0.5)
         photometry_mode_noise = AperturePhotometryMode(
@@ -411,9 +416,9 @@ def compute_contrast(
         contrast_curves_grid, contrast_grids = contrast_instance.compute_contrast_grids(
             statistical_test=statistical_test,
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
-            num_rot_iter=20,
-            safety_margin=1.0,
-            num_cores=1, 
+            num_rot_iter=10,
+            safety_margin=2.5,
+            num_cores=45, 
             pixel_scale= pixel_scale)
 
         return contrast_curves_grid, contrast_grids
@@ -423,7 +428,9 @@ def plot_contrast_grid(
     contrast_grid_axis,
     colorbar_axis,
     contrast_grid,
-    cmap = "YlGnBu"):
+    cmap = "YlGnBu",
+    vmax=2, 
+    vmin=7):
 
     c_bar_kargs = dict(
         orientation = "vertical",
@@ -431,9 +438,10 @@ def plot_contrast_grid(
 
     heat = sns.heatmap(
         contrast_grid,
-        vmax=2, vmin=7,
+        vmax=vmax, vmin=vmin,
         annot=True,
         cmap= cmap,
+        fmt = '.1f',
         ax=contrast_grid_axis,
         cbar_ax=colorbar_axis,
         cbar_kws=c_bar_kargs)
@@ -449,6 +457,8 @@ def plot_contrast_grid(
 def plot_contrast_curves(
     contrast_curves, 
     lim_mag_y,
+    curves_output_path, 
+    dataset_name,
     contrast_errors = None, 
     lim_x = None, 
     title = None,
@@ -539,6 +549,20 @@ def plot_contrast_curves(
             ls="--",
             label="Best")
 
+        best_pca = [
+            int(re.search(r"PCA_(\d+)", col).group(1))
+            for col in PADI_values.columns[best_idx]
+        ]
+        #save the overall best
+        result = pd.DataFrame(
+            {
+                #"separation_FWHM": x,
+                "best_contrast": overall_best,
+                "best_PCA": best_pca,
+            },
+            index=PADI_values.index,
+        )
+
     # ------------- Double axis and limits -----------------------
     if lim_x:
         lim_x = lim_x
@@ -615,7 +639,7 @@ def plot_contrast_curves(
         set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
     axis_contrast_curves_mag.set_title(
         set_title,
-        fontsize=18, fontweight="bold", y=1.1)
+        fontsize=18, fontweight="bold", y=1.05)
 
     # --------------------------- Legend -----------------------
     handles, labels = axis_contrast_curves.\
@@ -628,4 +652,54 @@ def plot_contrast_curves(
                     loc='lower left', ncol=8)
 
     _=plt.setp(leg1.get_title(),fontsize=14)
+    plt.savefig(f"{(curves_output_path)}/Contrast_Curves_{dataset_name}.png", pad_inches=0.15)
+    return result   
 
+def plot_overall_best(grid, curves_output_path, dataset_name, pca = False):
+
+    fig = plt.figure(figsize=(8, 4))
+
+    gs0 = fig.add_gridspec(1, 1)
+    gs0.update(wspace=0.0, hspace=0.2)
+    gs1 = gridspec.GridSpecFromSubplotSpec(
+        1, 2, subplot_spec = gs0[0],
+        wspace=0.05, width_ratios=[1, 0.03])
+
+    # All axis we need
+    contrast_ax = fig.add_subplot(gs1[0])
+    colorbar_ax = fig.add_subplot(gs1[1])
+    if pca == False:
+        #grid = grid.map(fpf_2_gaussian_sigma)
+        title = 'Overall Best Performance'
+    else:
+        title = 'Overall Best - PCA component'
+
+    # Plot the contrast grid
+    plot_contrast_grid(
+        contrast_grid_axis=contrast_ax,
+        colorbar_axis=colorbar_ax,
+        contrast_grid=grid, 
+        cmap = 'YlGn' if pca == True else "YlGnBu",
+        vmax = np.max(grid) if pca == True else 2,
+        )
+
+    contrast_ax.set_ylabel(
+        "Contrast - $c = f_p / f_*$ - [mag]", size=14)
+    contrast_ax.set_xlabel(
+        r"Separation [FWHM]", size=14)
+    contrast_ax.set_title(
+        "Contrast Grid: " + title,
+        fontsize=16,
+        fontweight="bold",
+        y=1.03)
+
+    contrast_ax.tick_params(
+        axis='both',
+        which='major',
+        labelsize=12)
+
+    # Save the figure
+    fig.patch.set_facecolor('white')
+
+    plt.savefig(f"{(curves_output_path)}/GRID_{title.replace(' ', '_')}_{dataset_name}.png", pad_inches=0.15)
+    

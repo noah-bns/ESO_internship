@@ -23,6 +23,8 @@ from astropy.io import fits
 from astropy.visualization import LogStretch, ImageNormalize, AsinhStretch
 from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
+from matplotlib.animation import FuncAnimation, PillowWriter
+import matplotlib.gridspec as gridspec
 
 #scientific libraries
 from hcipy import *
@@ -33,7 +35,7 @@ from applefy import *
 #from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
-from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest
+from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest, fpf_2_gaussian_sigma
 
 import fours
 importlib.reload(fours)
@@ -415,13 +417,13 @@ def fake_planet_experiment(
     #    # num_cpus_pynpoint=1)
     if version == 'PCAD':
         # if grid == False:
-        work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
-        work_dir.mkdir(exist_ok=True)
+        # work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
+        # work_dir.mkdir(exist_ok=True)
         algorithm_function = PCADataReductionGPU(
                 pca_numbers = components,
                 approx_svd = approx_svd, # truncated for large tensor calculations 
                 device = device,
-                work_dir = work_dir,
+                # work_dir = work_dir,
                 )
         # if grid == True:
             # algorithm_function = MultiComponentPCAvip(
@@ -497,7 +499,7 @@ def compute_contrast_curves(
 
     if photometry == 'FS':# Use spaced pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "FS", # or "P"
+            "F", # or "P"
             psf_fwhm_radius=fwhm/2,
             search_area=0.5)
         photometry_mode_noise = AperturePhotometryMode(
@@ -533,9 +535,9 @@ def compute_contrast_curves(
         contrast_curves, contrast_errors = contrast_instance.compute_contrast_grids(
             statistical_test=statistical_test,
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
-            num_rot_iter=20,
-            safety_margin=5.0,
-            num_cores=20, # num_parallel,
+            num_rot_iter=10,
+            safety_margin=2.5,
+            num_cores=45, # num_parallel,
             pixel_scale= pixel_scale)    
     else:
         contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
@@ -1485,6 +1487,35 @@ def plot_contrast_curves2(
                     loc='lower left', ncol=8)
 
     _=plt.setp(leg1.get_title(),fontsize=14)
+
+def plot_contrast_grid(
+    contrast_grid_axis,
+    colorbar_axis,
+    contrast_grid,
+    cmap = "YlGnBu",
+    vmax=2, 
+    vmin=7):
+
+    c_bar_kargs = dict(
+        orientation = "vertical",
+        label = r"Confidence [$\sigma_{\mathcal{N}}$]")
+
+    heat = sns.heatmap(
+        contrast_grid,
+        vmax=vmax, vmin=vmin,
+        annot=True,
+        fmt = '.1f',
+        cmap= cmap,
+        ax=contrast_grid_axis,
+        cbar_ax=colorbar_axis,
+        cbar_kws=c_bar_kargs)
+
+    ylabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_yticklabels()]
+    _=heat.set_yticklabels(ylabels)
+    xlabels = ['{:.1f}'.format(float(x.get_text()))
+               for x in heat.get_xticklabels()]
+    _=heat.set_xticklabels(xlabels)
 
 
 def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_name):

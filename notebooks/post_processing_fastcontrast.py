@@ -181,13 +181,13 @@ for dataset_name, dataset in datasets.items():
         contrast_instance.results_dict.update(old_results)
 
         # save the contrast instance as pickle
-        print("Saving the contrast instance to disk ...", end=" ")
-        contrast_instance_file = contrast_result_dir / Path(
-            dataset_name + "_contrast_instance.pkl"
-        )
+        # print("Saving the contrast instance to disk ...", end=" ")
+        # contrast_instance_file = contrast_result_dir / Path(
+        #     dataset_name + "_contrast_instance.pkl"
+        # )
 
-        with open(contrast_instance_file, "wb") as f:
-            pickle.dump(contrast_instance, f)
+        # with open(contrast_instance_file, "wb") as f:
+        #     pickle.dump(contrast_instance, f)
 
     contrast_grids = compute_contrast_curves(
         contrast_instance,
@@ -199,12 +199,12 @@ for dataset_name, dataset in datasets.items():
     )
 
     # save the contrast grids
-    print("Saving the contrast grids to disk ...", end=" ")
-    contrast_grids_file = contrast_result_dir / Path(
-        dataset_name + "_contrast_grids.pkl"
-    )
+    # print("Saving the contrast grids to disk ...", end=" ")
+    # contrast_grids_file = contrast_result_dir / Path(
+    #     dataset_name + "_contrast_grids.pkl"
+    # )
 
-    with open(contrast_grids_file, "wb") as f:
-        pickle.dump(contrast_grids, f)
+    # with open(contrast_grids_file, "wb") as f:
+    #     pickle.dump(contrast_grids, f)
 
     print("[DONE]")

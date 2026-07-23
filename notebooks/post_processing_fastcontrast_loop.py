@@ -22,7 +22,9 @@ from fours.detection_limits.applefy_wrapper import (
 )
 from applefy.utils import  mag2flux_ratio
 from applefy.utils.positions import center_subpixel
+from applefy.wrappers.vip import MultiComponentPCAvip
 
+kwargs={'imlib':'skimage', 'interpolation':'biquintic', "nproc":None, 'verbose':False} # for speed improvement
 
 
 frame_rate = 1 / 400  # s
@@ -35,10 +37,10 @@ n_psf = round(dit_psf / dit_science)
 radius_psf = 10
 radius_sc = 50
 
-sc_img_int = np.load("/home/aosimul/noah/data/ghost_images/4ms/stg2_int.npy")
-sc_img_pred = np.load("/home/aosimul/noah/data/ghost_images/4ms/stg2_pred.npy")
-psf_pred = np.load("/home/aosimul/noah/data/ghost_images/4ms/psf_pred.npy")
-psf_int = np.load("/home/aosimul/noah/data/ghost_images/4ms/psf_int.npy")
+sc_img_int = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/int_0.5ro_10ws.npy")
+sc_img_pred = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/pred_0.5ro_10ws.npy")
+psf_int = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/psf_int_0.5ro_10ws.npy")
+psf_pred = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/psf_pred_0.5ro_10ws.npy")
 # sc_img_int  = sc_img_int[:, ]
 # psf_int     = np.sum(sc_img_int[:n_psf],  axis = 0)
 # psf_int     = zoom_to_peak(psf_int, radius_psf)
@@ -50,10 +52,10 @@ psf_int = np.load("/home/aosimul/noah/data/ghost_images/4ms/psf_int.npy")
 # psf_pred       = psf_pred[radius_psf:-radius_psf, radius_psf:-radius_psf]
 # psf_int        = psf_int[radius_psf:-radius_psf, radius_psf:-radius_psf]
 
-binning        = 25
-sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
-sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
-dit_science    = dit_science*binning
+# binning        = 25
+# sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
+# sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
+# dit_science    = dit_science*binning
 
 # CREATE DATASETS
 datasets = {
@@ -86,21 +88,22 @@ contrast_result_dir = "/home/aosimul/noah/results/contrast_grid"
 name = "test_grid_nobin"
 grid = True
 flux_ratio_mag = 16
-flux_ratios_mag = np.linspace(4, 17, 5)
-num_fake_planets = 2
+flux_ratios_mag = np.linspace(12, 17, 5)
+num_fake_planets = 3
 components = [5, 20, 50, 100, 150]
 scaling_factor = 1.0  # A factor to account e.g. for ND filters
-angles = np.linspace(0, 30, np.shape(sc_img_int)[0])  # parang[::10]
-angles = np.deg2rad(angles)
 flux_ratio = mag2flux_ratio(flux_ratio_mag)
 flux_ratios = mag2flux_ratio(flux_ratios_mag)
 separation = 1
 max_separation = 1  # in fraction of total image radius
 approx_svd_trunc = round(np.shape(sc_img_int)[0] / 5)
-device = "cpu"  #'cpu'
+device = "cuda"  #'cpu'
 # -----------
 
 for dataset_name, dataset in datasets.items():
+
+    angles = np.linspace(0, 30, np.shape(dataset["sci_img"])[0])  # parang[::10]
+    angles = np.deg2rad(angles)
 
     if grid == True:
         path = f"{contrast_result_dir}/{name}_{dataset_name}" #_{algo_name}"
@@ -169,12 +172,12 @@ for dataset_name, dataset in datasets.items():
     work_dir.mkdir(exist_ok=True)
 
     pca_algorithm_function = PCADataReductionGPU(
-        approx_svd=max(components)*10,  # needed due to limited GPU memory
+        approx_svd=approx_svd_trunc,  # needed due to limited GPU memory
         pca_numbers=np.array(components),
-        device=0,
+        device=device,
         work_dir=work_dir,
-        special_name="try_pipeline",
-        verbose=False,
+        #num_pcas=components,
+        #kwarg=kwargs,
     )
 
     contrast_instance.run_fake_planet_experiments(
@@ -193,22 +196,23 @@ for dataset_name, dataset in datasets.items():
     with open(contrast_instance_file, "wb") as f:
         pickle.dump(contrast_instance, f)
 
-contrast_grids = compute_contrast_curves(
-    contrast_instance,
-    dataset["fwhm"],
-    pixel_scale=pixel_size,
-    photometry="AS",
-    test="t-test",
-    grid=grid,
-)
+    contrast_grids = compute_contrast_curves(
+        contrast_instance,
+        dataset["fwhm"],
+        pixel_scale=pixel_size,
+        photometry="FS",
+        test="t-test",
+        grid=grid,
+    )
 
-# save the contrast grids
-print("Saving the contrast grids to disk ...", end=" ")
-contrast_grids_file = contrast_result_dir / Path(
-    dataset_name + "_contrast_grids.pkl"
-)
+    # save the contrast grids
+    print("Saving the contrast grids to disk ...", end=" ")
+    contrast_grids_file = contrast_result_dir / Path(
+        dataset_name + "_contrast_grids.pkl"
+    )
 
-with open(contrast_grids_file, "wb") as f:
-    pickle.dump(contrast_grids, f)
+    with open(contrast_grids_file, "wb") as f:
+        pickle.dump(contrast_grids, f)
 
-print("[DONE]")
+    print("[DONE]")
+
