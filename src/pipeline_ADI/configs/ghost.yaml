@@ -1,34 +1,35 @@
 experiment:
-  name: pipeline_ADI_gram
+  name: pipeline_ADI_merged_grid
 
 algorithms:
-  CADI: false
+  CADI: true
   PCAD: true
 
 datasets:
   int:
     enabled: true
-    science_file: /home/aosimul/noah/data/ghost_images/4ms/stg2_int.npy
-    psf_file: /home/aosimul/noah/data/ghost_images/4ms/psf_int.npy
+    science_file: /home/aosimul/noah/data/ghost_images/10_20ws/int_0.5ro_10ws.npy
+    psf_file: /home/aosimul/noah/data/ghost_images/10_20ws/psf_int_0.5ro_10ws.npy
   pred:
     enabled: true
-    science_file: /home/aosimul/noah/data/ghost_images/4ms/stg2_pred.npy
-    psf_file: /home/aosimul/noah/data/ghost_images/4ms/psf_pred.npy
+    science_file: /home/aosimul/noah/data/ghost_images/10_20ws/pred_0.5ro_10ws.npy
+    psf_file: /home/aosimul/noah/data/ghost_images/10_20ws/psf_pred_0.5ro_10ws.npy
 
 instrument:
-  dit_science: 0.004
-  dit_factor: 5
-  dit_psf: 10
-  pixel_size: 0.005
-  radius_psf: null
+  dit_science: 0.015
+  # dit_factor: 25
+  dit_psf: 0.5
+  # radius_psf: 10
+  # radius_sc: 50
+
 
 fake_planet:
-  flux_ratio_mag: 16
-  num_fake_planets: 3
-  components: [5, 10, 20, 50, 75, 100] #[10, 50, 100, 150]
+  flux_ratio_mag: [3, 4, 5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 15]
+  num_fake_planets: 6 #6
+  components: [5, 10, 20, 50, 75, 100, 150, 200] #[10, 50, 100, 150]
 
   separation: 1
-  max_separation: 0.7
+  max_separation: 1
 
   approx_svd_trunc: 3125
   device: "cuda"
@@ -43,10 +44,7 @@ contrast:
   enabled: true         # if not enabled, only the fake planet experiment is performed
   path: "results/contrast"            # Root directory for output curves.
                                       # OPTIONAL, Default: results/contrast
-  photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
-                        # OPTIONAL, Default: AS
-  test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
-                        # OPTIONAL, Default: t-test
 
-  save_csv: false                     # Save contrast curves overall best as CSV files.
+
+  save_best: true                     # Save contrast curves overall best as CSV files.
                                       # OPTIONAL, Default: false

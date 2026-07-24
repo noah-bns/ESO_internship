@@ -1,18 +1,18 @@
-from pathlib import Path
+
+rom pathlib import Path
 import yaml
 import numpy as np
-import matplotlib.gridspec as gridspec
-from matplotlib.animation import FuncAnimation, PillowWriter
 from copy import deepcopy
 
+#scientific libraries
 import importlib
 from . import functions_ADI
 importlib.reload(functions_ADI)
 from .functions_ADI import *
-
-
+from .plotting import *
 from applefy.utils.positions import center_subpixel
 from applefy.statistics import fpf_2_gaussian_sigma
+
 
 def load_config(config_path, defaults_path="configs/default_values.yaml"):
     """
@@ -603,83 +603,20 @@ def run_pipeline(config):
 
                 print(f"Computing contrast grid for {dataset_name} ...")
             
-                _save_grid_animation(contrasts_output[1], curves_output_path, exp+'_'+dataset_name)
+                save_grid_animation(contrasts_output[1], curves_output_path, exp+'_'+dataset_name)
                 plot_overall_best(best_value_df, curves_output_path, dataset_name)
                 plot_overall_best(best_pca_df, curves_output_path, dataset_name, pca = True)
-                rangey = (5,15)
+                rangey = (15,7)
                 result = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
 
             else:
                 result = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, contrast_errors = contrasts_output[1], cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
 
-            if cnst['save_csv']:
+            if cnst['save_best']:
                 result.to_hdf(
-                    f"{curves_output_path}/overall_best.h5",
+                    f"/home/aosimul/noah/src/pipeline_ADI/results/contrast/overall_best.h5",
                     key=exp+'_'+dataset_name,
                     mode="a"
                 )
 
 
-def _save_grid_animation(contrast_grids, curves_output_path, dataset_name):
-
-    keys = list(contrast_grids.keys())
-
-    fig = plt.figure(figsize=(7, 4))
-
-    gs0 = fig.add_gridspec(1, 1)
-    gs1 = gridspec.GridSpecFromSubplotSpec(
-        1, 2,
-        subplot_spec=gs0[0],
-        wspace=0.05,
-        width_ratios=[1, 0.03]
-    )
-
-    contrast_ax = fig.add_subplot(gs1[0])
-    colorbar_ax = fig.add_subplot(gs1[1])
-
-
-    def update(i):
-        contrast_ax.clear()
-        colorbar_ax.clear()
-
-        key = keys[i]
-
-        grid = contrast_grids[key].copy()
-
-        # convert FPF to sigma
-        grid = grid.map(fpf_2_gaussian_sigma)
-
-        # convert flux ratio to magnitude
-        grid.index = flux_ratio2mag(grid.index)
-
-        algo_name = 'CADI' if key =='cADI' else 'PCAD'
-
-        plot_contrast_grid(
-            contrast_grid_axis=contrast_ax,
-            colorbar_axis=colorbar_ax,
-            contrast_grid=grid,
-            cmap = 'YlOrRd' if algo_name == 'CADI' else "YlGnBu"
-        )
-
-        contrast_ax.set_ylabel("Contrast - $c=f_p/f_*$ [mag]", fontsize=14)
-        contrast_ax.set_xlabel("Separation [FWHM]", fontsize=14)
-
-        contrast_ax.set_title(
-            f"{dataset_name.replace("_", " ")}: {key.replace("_", " ")}",
-            fontsize=16,
-            fontweight="bold"
-        )
-
-        contrast_ax.tick_params(labelsize=12)
-        plt.subplots_adjust(bottom=0.2)
-        plt.close()
-
-    ani = FuncAnimation(
-        fig,
-        update,
-        frames=len(keys),
-        interval=500
-    )
-
-    ani.save(f"{(curves_output_path)}/GRID_{dataset_name}.gif", writer=PillowWriter(fps=1))
-    

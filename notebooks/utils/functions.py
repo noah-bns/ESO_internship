@@ -1,9 +1,6 @@
 
-from fours.utils import pca
+#organisation
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 from pathlib import Path
 import warnings
 import os
@@ -12,10 +9,13 @@ from scipy import interpolate
 import importlib
 import time
 import gc
-import seaborn as sns
 import pandas as pd
 
 #images
+import seaborn as sns
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 mpl.rcParams['hatch.linewidth'] = 0.5  # previous pdf hatch linewidth
 import torch
 import imageio.v2 as imageio
@@ -36,7 +36,6 @@ from applefy import *
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
 from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest, fpf_2_gaussian_sigma
-
 import fours
 importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU, PCADataReductionGPU, CADIDataReduction

@@ -63,7 +63,7 @@ contrast:
   photometry: "FS"                    # Aperture photometry mode. Allowed values depend on implementation.
   test: "t-test"                      # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
   
-  save_csv: false                     # Save contrast curves overall best as CSV files.
+  save_best: false                     # Save contrast curves overall best as CSV files.
 
             
 

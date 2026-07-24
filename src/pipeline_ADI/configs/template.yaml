@@ -98,13 +98,13 @@ contrast:
   enabled: true         # if not enabled, only the fake planet experiment is performed
   path: "results/contrast"            # Root directory for output curves.
                                       # OPTIONAL, Default: results/contrast
-  photometry: "AS"      # Aperture photometry mode. Allowed values depend on implementation.
+  photometry: "FS"      # Aperture photometry mode. Allowed values depend on implementation.
                         # OPTIONAL, Default: AS
   test: "t-test"        # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
                         # OPTIONAL, Default: t-test
 
-  save_csv: false                     # Save contrast curves overall best as CSV files.
-                                      # OPTIONAL, Default: false
+  save_best: false                     # Save contrast curves overall best as CSV files.
+                                       # OPTIONAL, Default: false
 
 
 
