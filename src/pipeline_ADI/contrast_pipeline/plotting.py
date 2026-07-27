@@ -563,7 +563,7 @@ def plot_overall_best(grid, curves_output_path, dataset_name, pca = False):
     contrast_ax.set_xlabel(
         r"Separation [FWHM]", size=14)
     contrast_ax.set_title(
-        "Contrast Grid: " + title,
+        "Contrast Grid: " + title + '\n' + dataset_name.replace('_', ' '),
         fontsize=16,
         fontweight="bold",
         y=1.03)
@@ -576,10 +576,10 @@ def plot_overall_best(grid, curves_output_path, dataset_name, pca = False):
     # Save the figure
     fig.patch.set_facecolor('white')
 
-    plt.savefig(f"{(curves_output_path)}/GRID_{title.replace(' ', '_')}_{dataset_name}.png", pad_inches=0.15)
+    plt.savefig(f"{(curves_output_path)}/GRID_{title.replace(' ', '_')}_{dataset_name}.png", pad_inches=0.2)
 
 
-def plot_all_best(curves_output_path):
+def plot_all_best_old(curves_output_path):
     with pd.HDFStore(f"{curves_output_path}/overall_best.h5") as store:
         fig, ax = plt.subplots(figsize=(12, 7))
         gs0 = fig.add_gridspec(1, 1)
@@ -649,3 +649,219 @@ def plot_all_best(curves_output_path):
             bbox_inches="tight",
             bbox_extra_artists=(leg1,),
         )
+
+
+def plot_all_best2(curves_output_path):
+    with pd.HDFStore(f"{curves_output_path}/overall_best.h5") as store:
+        fig, ax = plt.subplots(figsize=(12, 7))
+        gs0 = fig.add_gridspec(1, 1)
+        # color_map = plt.cm.get_cmap('inferno')   # seaborn-style colormap available in mpl
+        # colors = [color_map(int(i)) for i in np.round(np.linspace(0, 250, len(store.keys())))]
+        color_map = plt.colormaps["tab20c"]
+        colors = color_map(np.linspace(0, 1, len(store)))
+
+        reds = plt.colormaps["Reds"]
+        blues = plt.colormaps["Blues"]
+
+        int_keys = [k for k in store.keys() if k.endswith("int")]
+        pred_keys = [k for k in store.keys() if k.endswith("pred")]
+
+        red_colors = dict(zip(int_keys, reds(np.linspace(0.2, 1, len(int_keys)))))
+        blue_colors = dict(zip(pred_keys, blues(np.linspace(0.2, 1, len(pred_keys)))))
+
+        # Then inside the loop:
+
+        ordered_keys = int_keys + pred_keys
+
+        for key in ordered_keys:
+            df = store[key]
+
+            line_color = (
+                red_colors[key] if key.endswith("int")
+                else blue_colors[key]
+            )           
+            ax.semilogy(
+                df.index,
+                df["best_contrast"],
+                lw=2,
+                color = line_color, #colors[i],
+                label=key.strip("/").replace('_', ' ').replace('windspeed', 'ws'),
+            )
+
+            sc = ax.scatter(
+                df.index,
+                df["best_contrast"],
+                c=df["best_PCA"],
+                cmap="YlGn",
+                s=100,
+                zorder=5,
+                linewidth = 0.5,
+                edgecolors= line_color,
+            )
+
+        leg1 = fig.legend(
+            fontsize=14,
+            loc="lower left",
+            bbox_to_anchor=(0.1, -(0.02 * len(store.keys()))),
+            ncol=3,
+            title="Experiment",
+            title_fontsize=16, 
+        )
+        
+    # Colorbar
+    cbar = fig.colorbar(
+        sc,
+        ax=ax,               # or axis_contrast_curves
+        pad=0.1,            # distance from the axes
+    )
+
+    cbar.set_label(
+        "Best PCA",
+        fontsize=16,
+    )
+
+    cbar.ax.tick_params(labelsize=14)
+    ax.set_title(
+            'Overall Best Contrast Curves',
+            fontsize=18, fontweight="bold", y=1.05)
+
+    ax.set_xlabel("Separation [FWHM]", fontsize=16)
+    ax.set_ylabel("Planet-to-star flux ratio", fontsize=16)
+    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.grid(which='both')
+    ax_mag = ax.twinx()
+    ymin, ymax = ax.get_ylim()
+    ax_mag.set_ylim(flux_ratio2mag(ymin), mag2flux_ratio(ymax))
+    ax_mag.set_ylabel(r"$\Delta$ Magnitude", fontsize=16)
+    # ax_mag = ax.secondary_yaxis(
+    #     "right",
+    #     functions=(flux_ratio2mag, mag2flux_ratio)  # (forward, inverse)
+    # )
+    ax_mag.tick_params(axis="both", which="major", labelsize=14)
+
+    plt.savefig(f"{(curves_output_path)}/Overall_Best_Contrast.png",
+            bbox_inches="tight",
+            bbox_extra_artists=(leg1,),
+        )
+
+def plot_all_best(curves_output_path):
+    with pd.HDFStore(f"{curves_output_path}/overall_best.h5") as store:
+        fig, ax = plt.subplots(figsize=(12, 7))
+        gs0 = fig.add_gridspec(1, 1)
+        # color_map = plt.cm.get_cmap('inferno')   # seaborn-style colormap available in mpl
+        # colors = [color_map(int(i)) for i in np.round(np.linspace(0, 250, len(store.keys())))]
+        color_map = plt.colormaps["tab20c"]
+        colors = color_map(np.linspace(0, 1, len(store)))
+        seq = 'managua'
+        reds = plt.colormaps[seq]
+        blues = plt.colormaps[seq]
+
+        int_keys = [k for k in store.keys() if k.endswith("int")]
+        pred_keys = [k for k in store.keys() if k.endswith("pred")]
+
+        red_colors = dict(zip(int_keys, reds(np.linspace(0.2, 1, len(int_keys)))))
+        blue_colors = dict(zip(pred_keys, blues(np.linspace(0.2, 1, len(pred_keys)))))
+
+        # Then inside the loop:
+
+        ordered_keys = pred_keys + int_keys
+
+        df_0 = store[ordered_keys[0]]
+        ax.semilogy(
+            df_0.index,
+            df_0["best_contrast"],
+            lw=1.2,
+            color = 'black', #colors[i],
+            ls = '-',
+            label= 'Predictive Control           ',
+        )
+        ax.semilogy(
+            df_0.index,
+            df_0["best_contrast"],
+            lw=1.5,
+            color = 'black', #colors[i],
+            ls = '--',
+            label= 'Integrator Control             ',
+        )
+
+        for key in ordered_keys:
+            df = store[key]
+
+            line_color = (
+                red_colors[key] if key.endswith("int")
+                else blue_colors[key]
+            )
+
+            mark = (
+                '--' if key.endswith("int")
+                else '-'
+            )    
+
+            label =   key.strip("/").replace('_', ' ').replace('windspeed', ' ws').replace('r0', 'e-1 r0,').replace('pred', '')  
+            ax.semilogy(
+                df.index,
+                df["best_contrast"],
+                lw=3,
+                color = line_color, #colors[i],
+                ls = mark,
+                label= label if key in pred_keys else None,
+            )
+
+            sc = ax.scatter(
+                df.index,
+                df["best_contrast"],
+                c=df["best_PCA"],
+                cmap=plt.colormaps["YlGn"],
+                s=100,
+                zorder=5,
+                linewidth = 0.2,
+                edgecolors= line_color, #'grey', #colors[i],
+            )
+
+        leg1 = fig.legend(
+            fontsize=14,
+            loc="lower left",
+            bbox_to_anchor=(0.12, -(0.018 * len(store.keys()))),
+            ncol=2,
+            title="Experiment",
+            title_fontsize=16, 
+        )
+        
+    # Colorbar
+    cbar = fig.colorbar(
+        sc,
+        ax=ax,               # or axis_contrast_curves
+        pad=0.1,            # distance from the axes
+    )
+
+    cbar.set_label(
+        "Best PCA",
+        fontsize=16,
+    )
+
+    cbar.ax.tick_params(labelsize=14)
+    ax.set_title(
+            'Overall Best Contrast Curves',
+            fontsize=18, fontweight="bold", y=1.05)
+
+    ax.set_xlabel("Separation [FWHM]", fontsize=16)
+    ax.set_ylabel("Planet-to-star flux ratio", fontsize=16)
+    ax.tick_params(axis="both", which="major", labelsize=14)
+    ax.grid(which='both')
+    ax_mag = ax.twinx()
+    ymin, ymax = ax.get_ylim()
+    ax_mag.set_ylim(flux_ratio2mag(ymin), flux_ratio2mag(ymax))
+    ax_mag.set_ylabel(r"$\Delta$ Magnitude", fontsize=16)
+    # ax_mag = ax.secondary_yaxis(
+    #     "right",
+    #     functions=(flux_ratio2mag, mag2flux_ratio)  # (forward, inverse)
+    # )
+    ax_mag.tick_params(axis="both", which="major", labelsize=14)
+
+    plt.savefig(f"{(curves_output_path)}/Overall_Best_Contrast.png",
+            bbox_inches="tight",
+            bbox_extra_artists=(leg1,),
+        )
+
+curves_output_path = '/home/aosimul/noah/src/pipeline_ADI/results/contrast'
+plot_all_best(curves_output_path)

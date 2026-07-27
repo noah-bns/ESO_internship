@@ -599,14 +599,14 @@ def run_pipeline(config):
 
                 best_pca_df = deepcopy(best_value_df)
                 best_pca_df.iloc[:, :] = best_pca
-                best_pca_df.index = flux_ratio2mag(best_pca_df.index)
+                #best_pca_df.index = flux_ratio2mag(best_pca_df.index)
 
                 print(f"Computing contrast grid for {dataset_name} ...")
             
                 save_grid_animation(contrasts_output[1], curves_output_path, exp+'_'+dataset_name)
-                plot_overall_best(best_value_df, curves_output_path, dataset_name)
-                plot_overall_best(best_pca_df, curves_output_path, dataset_name, pca = True)
-                rangey = (15,7)
+                plot_overall_best(best_value_df, curves_output_path, exp+'_'+dataset_name)
+                plot_overall_best(best_pca_df, curves_output_path, exp+'_'+dataset_name, pca = True)
+                rangey = (14,4)
                 result = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
 
             else:

@@ -37,12 +37,12 @@ new_config = copy.deepcopy(config)
 # run_pipeline(config)
 folder = '/home/aosimul/noah/data/ghost_images/10_20ws/'
 
-new_config["fake_planet"]["flux_ratio_mag"] = np.linspace(5.0, 15.0, 20)
+new_config["fake_planet"]["flux_ratio_mag"] = np.linspace(6.0, 14.0, 16)
 new_config["fake_planet"]["components"] = np.concatenate(
         [
-            np.arange(0, 30, 1)[1:],
-            np.arange(30, 80, 5),
-            np.arange(80, 150, 10),
+            np.arange(0,10, 1)[1:],
+            np.arange(10, 50, 5),
+            np.arange(50, 150, 15),
         ]
     )
 
