@@ -35,6 +35,32 @@ from scipy.ndimage import center_of_mass
 from PyAstronomy import pyasl
 
 
+def radial_profile_pre(image, binsize=1):
+    ny, nx = image.shape
+    cy, cx = (ny - 1) / 2, (nx - 1) / 2
+
+    y, x = np.indices(image.shape)
+    r = np.sqrt((x - cx)**2 + (y - cy)**2)
+
+    rbin = np.floor(r / binsize).astype(int)
+
+    maxbin = rbin.max() + 1
+
+    profile = np.empty(maxbin)
+    std = np.empty(maxbin)
+    radius = np.arange(maxbin) * binsize
+
+    for i in range(maxbin):
+        mask = rbin == i
+        values = image[mask]
+
+        profile[i] = values.mean()
+        std[i] = values.std()
+
+    return radius, profile, std
+
+
+
 def estimate_center(stack, nframes=1000, upsample_factor=100,
                     max_iter=100, tol=1e-3):
     """
@@ -416,7 +442,7 @@ def compute_contrast(
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
             num_rot_iter=10,
             safety_margin=2.5,
-            num_cores=45, 
+            num_cores=10, 
             pixel_scale= pixel_scale)
 
         return contrast_curves_grid, contrast_grids

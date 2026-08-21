@@ -1,6 +1,6 @@
 
-rom pathlib import Path
-import yaml
+from pathlib import Path
+import yaml, pickle
 import numpy as np
 from copy import deepcopy
 
@@ -92,7 +92,8 @@ def _validate_required_fields(config):
         If required fields are missing.
     """
     required_fields = {
-        'experiment': ['name'],    # Will default to 'test'
+
+        'experiment': ['name', 'ori_folder'],    # Will default to 'test'
         'datasets': None,
         'instrument': ['dit_science', 'dit_psf'],
         'algorithms': None,
@@ -128,7 +129,8 @@ def _validate_required_fields(config):
                     )
 
 
-def build_dataset(science_file,
+def build_dataset(ori_folder, 
+                  science_file,
                   dit_science,
                   dit_psf,
                   radius_psf,
@@ -162,7 +164,7 @@ def build_dataset(science_file,
         Dataset dictionary containing psf, sci_img, fwhm, dit_psf, dit_science.
     """
 
-    sci_img = np.load(science_file)
+    sci_img = np.load(ori_folder + science_file)
 
     if radius_sc is not None:
         sci_img = zoom_to_peak(sci_img, radius_sc)
@@ -170,7 +172,7 @@ def build_dataset(science_file,
         print("Science images assumed square and centered")
 
     if psf_file is not None:
-        psf = np.load(psf_file)
+        psf = np.load(ori_folder + psf_file)
     else:
         n_psf = round(dit_psf / dit_science)
         psf = np.sum(sci_img[:n_psf], axis=0)
@@ -186,6 +188,7 @@ def build_dataset(science_file,
         print(f"Science DIT multiplied by factor {dit_factor}. New DIT: {dit_science}s")
 
     return {
+        "file_name": science_file.split(".npy")[0],
         "psf": psf,
         "sci_img": sci_img,
         "fwhm": calculate_fwhm(psf),
@@ -220,6 +223,276 @@ def _load_angles(angle_file, size):
         raise ValueError(f"Unsupported angle file format: {angle_file.suffix}, must be '.npy' or '.csv'")
     
 
+ 
+
+def run_pipeline(config):
+    """
+    Main pipeline execution function.
+    
+    Reads configuration, builds datasets, and runs all enabled algorithms
+    to compute contrast curves.
+    
+    Parameters
+    ----------
+    config : dict
+        Experiment configuration dictionary.
+    
+    Returns
+    -------
+    dict or None
+        Contrast curves if enabled, otherwise None.
+    """
+
+    root_dir = Path(".")
+
+    inst    = config["instrument"]
+    fp      = config["fake_planet"]
+    cnst    = config["contrast"]
+    exp     = config['experiment']['name']
+    ori_folder = config['experiment']['ori_folder']
+    algorithms = {
+        k: k
+        for k, enabled in config["algorithms"].items()
+        if enabled
+    }
+
+    if not algorithms:
+        raise ValueError("No algorithms enabled in configuration.")
+
+
+    datasets = {}
+
+    for name, ds in config["datasets"].items():
+
+        if not ds.get("enabled", False):
+            continue
+
+        print(f"Building dataset: {name}")
+
+        datasets[name] = build_dataset(
+            ori_folder= ori_folder,
+            science_file=ds["science_file"],
+            dit_science=inst["dit_science"],
+            dit_psf=inst["dit_psf"],
+            radius_psf=inst["radius_psf"],
+            radius_sc=inst.get("radius_sc"),
+            psf_file=ds.get("psf_file"),
+            dit_factor=inst["dit_factor"]
+        )
+
+    if not datasets:
+        raise ValueError("No datasets enabled in configuration.")
+    
+
+    # Process each dataset with each algorithm
+    for dataset_name, dataset in datasets.items():
+
+        # Generate parallactic angles
+        if "angle_file" in fp and fp["angle_file"] is not None:
+            # Load angles from file
+            print(f"Loading angles from file (in degrees): {fp['angle_file']}")
+            angles = _load_angles(fp["angle_file"], np.shape(dataset["sci_img"])[0])
+        else:
+            # Generate angles
+            print(f"Generating angles from {fp['angle_start']} to {fp['angle_end']} degrees.")
+            angles = np.linspace(
+                fp["angle_start"],
+                fp["angle_end"],
+                dataset["sci_img"].shape[0]
+            )
+
+        angles = np.deg2rad(angles)
+
+        # Calculate separation range
+        center_coords = center_subpixel(dataset["sci_img"][0])
+        max_sep_pixels = round(center_coords[0] * fp["max_separation"])
+        
+        seps = np.arange(
+            0,
+            max_sep_pixels,
+            dataset["fwhm"] * fp["separation"]
+        )[1:]
+    
+        # Run fake planet experiment
+        print(f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}...")
+        
+
+        first_algo = next(iter(algorithms))
+
+        # Set output directory
+
+        print(f"\nProcessing {dataset_name} with {first_algo}...")
+
+        output_path = (
+            root_dir /
+            Path(
+            f"{fp["path"]}/"
+            f"{exp}"
+            f"_{dataset_name}"
+        ))
+
+        # Remove existing directory and all its contents
+        if output_path.exists():
+            shutil.rmtree(output_path)
+            print(f"Removed existing directory to avoid overwrites: {output_path}.")
+
+        output_path.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        flux_ratio = fp['flux_ratio_mag']
+        if isinstance(flux_ratio, list):
+            flux_ratio = np.array(flux_ratio)
+        flux_ratio = mag2flux_ratio(flux_ratio)
+
+
+        raw_contrast = None
+        if cnst["raw_contrasts"]:
+            with pd.HDFStore(ori_folder+cnst["raw_contrasts"]) as store:
+                if f'/{dataset["file_name"]}' in store.keys():
+                    raw_contrast = (
+                        store[f'/{dataset["file_name"]}'].index / dataset["fwhm"],
+                        store[f'/{dataset["file_name"]}']["raw_contrast"]
+                    )
+
+
+        grid = True if isinstance(fp['flux_ratio_mag'], (list, np.ndarray)) else False
+
+
+        contrast_instance = ContrastFast(
+            science_sequence=dataset["sci_img"],
+            psf_template=dataset["psf"],
+            parang_rad=angles,
+            psf_fwhm_radius=dataset["fwhm"] / 2,
+            dit_psf_template=dataset["dit_psf"],
+            device = fp['device'],
+            dit_science=dataset["dit_science"],
+            scaling_factor=fp["scaling_factor"],
+            checkpoint_dir= output_path
+        )
+
+        contrast_instance.design_fake_planet_experiments(
+            flux_ratios= flux_ratio,
+            num_planets=fp['num_fake_planets'],
+            separations = seps,
+            overwrite=True,
+            )
+
+
+        contrast_instance = fake_planet_experiment(
+                contrast_instance = contrast_instance,
+                output_path = output_path,
+                dataset = dataset,
+                fp_config = fp,
+                separations = seps,
+                algo_name = first_algo,
+                angles = angles,
+                )
+
+        for algo_name, alg in list(algorithms.items())[1:]:
+
+            old_results = contrast_instance.results_dict
+
+            contrast_instance = fake_planet_experiment(
+                    contrast_instance = contrast_instance,
+                    output_path = output_path,
+                    dataset = dataset,
+                    fp_config = fp,
+                    separations = seps,
+                    algo_name = algo_name,
+                    angles = angles,
+                    )
+            
+            contrast_instance.results_dict.update(old_results)
+
+        # Compute contrast curves if enabled
+        if cnst["enabled"]:
+            
+            curves_output_path = (
+                root_dir /
+                Path(f"{cnst['path']}"
+                f"/{exp}"
+                )
+            )
+            
+            curves_output_path.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            contrasts_output = compute_contrast(
+                contrast_instance,
+                dataset["fwhm"],
+                pixel_scale=inst["pixel_size"],
+                photometry=cnst["photometry"],
+                test=cnst["test"],
+                grid = grid
+            )
+
+            # Save grid results
+            rangey = (14,4)
+
+            if grid ==True:
+                print(f"Computing the Overall best grid for {dataset_name} ...")
+                baseline_grids = deepcopy(contrasts_output[1])
+                del baseline_grids["cADI"]
+
+                all_grids = np.array(
+                    [fpf_2_gaussian_sigma(tmp_grid.values)
+                    for tmp_grid in baseline_grids.values()])
+
+                # Best values
+                best_values = np.max(all_grids, axis=0)
+
+                # Which grid produced the best value
+                best_idx = np.argmax(all_grids, axis=0)
+
+                # Map indices to PCA numbers
+                pca_numbers = np.array([
+                    int(key.split("_")[2])
+                    for key in baseline_grids.keys()
+                ])
+
+                best_pca = pca_numbers[best_idx]
+
+                # Store as DataFrames
+                best_value_df = deepcopy(next(iter(baseline_grids.values())))
+                best_value_df.iloc[:, :] = best_values
+                best_value_df.index = flux_ratio2mag(best_value_df.index)
+
+                best_pca_df = deepcopy(best_value_df)
+                best_pca_df.iloc[:, :] = best_pca
+                #best_pca_df.index = flux_ratio2mag(best_pca_df.index)
+
+                print(f"Computing contrast grid for {dataset_name} ...")
+            
+                save_grid_animation(contrasts_output[1], curves_output_path, exp+'_'+dataset_name)
+                plot_overall_best(best_value_df, curves_output_path, exp+'_'+dataset_name)
+                plot_overall_best(best_pca_df, curves_output_path, exp+'_'+dataset_name, pca = True)
+                _ = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, raw_contrast= raw_contrast, cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
+
+            contrasts_output = compute_contrast(
+                            contrast_instance,
+                            dataset["fwhm"],
+                            pixel_scale=inst["pixel_size"],
+                            photometry=cnst["photometry"],
+                            test=cnst["test"],
+                            grid = False
+                        )
+            result_analytical = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, 'analytical_'+exp+'_'+dataset_name, raw_contrast= raw_contrast, contrast_errors = contrasts_output[1], cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
+
+            if cnst['save_best']:
+                result_analytical.to_hdf(
+                    f"/home/aosimul/noah/src/pipeline_ADI/results/contrast/overall_best.h5",
+                    key=dataset["file_name"],
+                    mode="a"
+                )
+
+
+
+
+########
 def run_pipeline_old(config):
     """
     Main pipeline execution function.
@@ -369,254 +642,4 @@ def run_pipeline_old(config):
                     print(f"Computing contrast grid for {dataset_name} - {algo_name}...")
                 
                     _save_grid_animation(dataset_contrast[algo_name][1], curves_output_path, exp+'_'+dataset_name)
-        
-
-def run_pipeline(config):
-    """
-    Main pipeline execution function.
-    
-    Reads configuration, builds datasets, and runs all enabled algorithms
-    to compute contrast curves.
-    
-    Parameters
-    ----------
-    config : dict
-        Experiment configuration dictionary.
-    
-    Returns
-    -------
-    dict or None
-        Contrast curves if enabled, otherwise None.
-    """
-
-    root_dir = Path(".")
-
-    inst    = config["instrument"]
-    fp      = config["fake_planet"]
-    cnst    = config["contrast"]
-    exp     = config['experiment']['name']
-
-    algorithms = {
-        k: k
-        for k, enabled in config["algorithms"].items()
-        if enabled
-    }
-
-    if not algorithms:
-        raise ValueError("No algorithms enabled in configuration.")
-
-
-    datasets = {}
-
-    for name, ds in config["datasets"].items():
-
-        if not ds.get("enabled", False):
-            continue
-
-        print(f"Building dataset: {name}")
-
-        datasets[name] = build_dataset(
-            science_file=ds["science_file"],
-            dit_science=inst["dit_science"],
-            dit_psf=inst["dit_psf"],
-            radius_psf=inst["radius_psf"],
-            radius_sc=inst.get("radius_sc"),
-            psf_file=ds.get("psf_file"),
-            dit_factor=inst["dit_factor"]
-        )
-
-    if not datasets:
-        raise ValueError("No datasets enabled in configuration.")
-    
-
-    # Store all contrast curves
-    all_curves = {}
-
-    # Process each dataset with each algorithm
-    for dataset_name, dataset in datasets.items():
-
-        # Generate parallactic angles
-        if "angle_file" in fp and fp["angle_file"] is not None:
-            # Load angles from file
-            print(f"Loading angles from file (in degrees): {fp['angle_file']}")
-            angles = _load_angles(fp["angle_file"], np.shape(dataset["sci_img"])[0])
-        else:
-            # Generate angles
-            print(f"Generating angles from {fp['angle_start']} to {fp['angle_end']} degrees.")
-            angles = np.linspace(
-                fp["angle_start"],
-                fp["angle_end"],
-                dataset["sci_img"].shape[0]
-            )
-
-        angles = np.deg2rad(angles)
-
-        # Calculate separation range
-        center_coords = center_subpixel(dataset["sci_img"][0])
-        max_sep_pixels = round(center_coords[0] * fp["max_separation"])
-        
-        seps = np.arange(
-            0,
-            max_sep_pixels,
-            dataset["fwhm"] * fp["separation"]
-        )[1:]
-    
-        # Run fake planet experiment
-        print(f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}...")
-        
-
-        first_algo = next(iter(algorithms))
-
-        # Set output directory
-
-        print(f"\nProcessing {dataset_name} with {first_algo}...")
-
-        output_path = (
-            root_dir /
-            Path(
-            f"{fp["path"]}/"
-            f"{exp}"
-            f"_{dataset_name}"
-        ))
-
-        # Remove existing directory and all its contents
-        if output_path.exists():
-            shutil.rmtree(output_path)
-            print(f"Removed existing directory to avoid overwrites: {output_path}.")
-
-        output_path.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        flux_ratio = fp['flux_ratio_mag']
-        if isinstance(flux_ratio, list):
-            flux_ratio = np.array(flux_ratio)
-        flux_ratio = mag2flux_ratio(flux_ratio)
-
-
-        grid = True if isinstance(fp['flux_ratio_mag'], (list, np.ndarray)) else False
-
-
-        contrast_instance = ContrastFast(
-            science_sequence=dataset["sci_img"],
-            psf_template=dataset["psf"],
-            parang_rad=angles,
-            psf_fwhm_radius=dataset["fwhm"] / 2,
-            dit_psf_template=dataset["dit_psf"],
-            device = fp['device'],
-            dit_science=dataset["dit_science"],
-            scaling_factor=fp["scaling_factor"],
-            checkpoint_dir= output_path
-        )
-
-        contrast_instance.design_fake_planet_experiments(
-            flux_ratios= flux_ratio,
-            num_planets=fp['num_fake_planets'],
-            separations = seps,
-            overwrite=True,
-            )
-
-
-        contrast_instance = fake_planet_experiment(
-                contrast_instance = contrast_instance,
-                output_path = output_path,
-                dataset = dataset,
-                fp_config = fp,
-                separations = seps,
-                algo_name = first_algo,
-                angles = angles,
-                )
-
-        for algo_name, alg in list(algorithms.items())[1:]:
-
-            old_results = contrast_instance.results_dict
-
-            contrast_instance = fake_planet_experiment(
-                    contrast_instance = contrast_instance,
-                    output_path = output_path,
-                    dataset = dataset,
-                    fp_config = fp,
-                    separations = seps,
-                    algo_name = algo_name,
-                    angles = angles,
-                    )
-            
-            contrast_instance.results_dict.update(old_results)
-
-        # Compute contrast curves if enabled
-        if cnst["enabled"]:
-            
-            curves_output_path = (
-                root_dir /
-                Path(f"{cnst['path']}"
-                f"/{exp}"
-                )
-            )
-            
-            curves_output_path.mkdir(
-                parents=True,
-                exist_ok=True
-            )
-
-            contrasts_output = compute_contrast(
-                contrast_instance,
-                dataset["fwhm"],
-                pixel_scale=inst["pixel_size"],
-                photometry=cnst["photometry"],
-                test=cnst["test"],
-                grid = grid
-            )
-    
-            # Save grid results
-            if grid ==True:
-                print(f"Computing the Overall best grid for {dataset_name} ...")
-                baseline_grids = deepcopy(contrasts_output[1])
-                del baseline_grids["cADI"]
-
-                all_grids = np.array(
-                    [fpf_2_gaussian_sigma(tmp_grid.values)
-                    for tmp_grid in baseline_grids.values()])
-
-                # Best values
-                best_values = np.max(all_grids, axis=0)
-
-                # Which grid produced the best value
-                best_idx = np.argmax(all_grids, axis=0)
-
-                # Map indices to PCA numbers
-                pca_numbers = np.array([
-                    int(key.split("_")[2])
-                    for key in baseline_grids.keys()
-                ])
-
-                best_pca = pca_numbers[best_idx]
-
-                # Store as DataFrames
-                best_value_df = deepcopy(next(iter(baseline_grids.values())))
-                best_value_df.iloc[:, :] = best_values
-                best_value_df.index = flux_ratio2mag(best_value_df.index)
-
-                best_pca_df = deepcopy(best_value_df)
-                best_pca_df.iloc[:, :] = best_pca
-                #best_pca_df.index = flux_ratio2mag(best_pca_df.index)
-
-                print(f"Computing contrast grid for {dataset_name} ...")
-            
-                save_grid_animation(contrasts_output[1], curves_output_path, exp+'_'+dataset_name)
-                plot_overall_best(best_value_df, curves_output_path, exp+'_'+dataset_name)
-                plot_overall_best(best_pca_df, curves_output_path, exp+'_'+dataset_name, pca = True)
-                rangey = (14,4)
-                result = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
-
-            else:
-                result = plot_contrast_curves(contrasts_output[0], rangey, curves_output_path, exp+'_'+dataset_name, contrast_errors = contrasts_output[1], cmap = 'winter', title =(r"$5 \sigma_{\mathcal{N}}$ Contrast Curves" +f"\n{exp} -- {dataset_name}"))
-
-            if cnst['save_best']:
-                result.to_hdf(
-                    f"/home/aosimul/noah/src/pipeline_ADI/results/contrast/overall_best.h5",
-                    key=exp+'_'+dataset_name,
-                    mode="a"
-                )
-
-
+       

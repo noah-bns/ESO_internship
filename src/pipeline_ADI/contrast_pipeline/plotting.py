@@ -329,6 +329,7 @@ def plot_contrast_curves(
     lim_mag_y,
     curves_output_path, 
     dataset_name,
+    raw_contrast = None,
     contrast_errors = None, 
     lim_x = None, 
     title = None,
@@ -366,12 +367,20 @@ def plot_contrast_curves(
 
 
     # ---------------------- Create the Plot --------------------
+    if raw_contrast:
+        raw_x, raw_y = raw_contrast
+        axis_contrast_curves.plot(raw_x, raw_y, '-', color = 'k', lw = 2, label = 'Raw Contrast', alpha = 0.8)  
+
     i = 0 # color picker
     for tmp_model in contrast_curves.columns:
         
         if 'cADI'.lower() in tmp_model.lower():
             num_components = 'cADI'
             color = 'red'
+
+            #saving
+            cadi_y = contrast_curves.reset_index(level=0)[tmp_model].values.copy()
+
         else:
             num_components = int(tmp_model[5:8])
             color = colors[i]
@@ -386,6 +395,7 @@ def plot_contrast_curves(
             color = color,
             alpha = alpha,
             label=num_components)
+
 
         if contrast_errors is not None:
             tmp_errors = contrast_errors.reset_index(
@@ -429,6 +439,7 @@ def plot_contrast_curves(
                 #"separation_FWHM": x,
                 "best_contrast": overall_best,
                 "best_PCA": best_pca,
+                "cADI_contrast": cadi_y if cadi_y is not None else np.nan,
             },
             index=PADI_values.index,
         )
@@ -576,8 +587,14 @@ def plot_overall_best(grid, curves_output_path, dataset_name, pca = False):
     # Save the figure
     fig.patch.set_facecolor('white')
 
-    plt.savefig(f"{(curves_output_path)}/GRID_{title.replace(' ', '_')}_{dataset_name}.png", pad_inches=0.2)
+    plt.tight_layout()
 
+    plt.savefig(
+        f"{curves_output_path}/GRID_{title.replace(' ', '_')}_{dataset_name}.png",
+        dpi=300,
+        bbox_inches="tight",
+        pad_inches=0.2,
+    )
 
 def plot_all_best_old(curves_output_path):
     with pd.HDFStore(f"{curves_output_path}/overall_best.h5") as store:

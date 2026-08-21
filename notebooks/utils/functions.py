@@ -21,7 +21,6 @@ import torch
 import imageio.v2 as imageio
 from astropy.io import fits
 from astropy.visualization import LogStretch, ImageNormalize, AsinhStretch
-from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.gridspec as gridspec
@@ -31,6 +30,9 @@ from hcipy import *
 import applefy
 importlib.reload(applefy)
 from applefy import *
+import pipeline_pre_ADI.library.statistics as stat
+importlib.reload(stat)
+from pipeline_pre_ADI.library.statistics import *
 #importlib.reload(applefy.detections.contrast)
 #from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
@@ -40,47 +42,6 @@ import fours
 importlib.reload(fours)
 from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU, PCADataReductionGPU, CADIDataReduction
 from fours.models.rotation import FieldRotationModel
-
-
-
-def optimal_svht_coef(beta):
-    """beta = m/n where m >= n."""
-    return 0.56 * beta**3 - 0.95 * beta**2 + 1.82 * beta + 1.43
-
-
-def gavish_donoho_rank(img, sigma=None):
-    """
-    S: singular values, m x n matrix shape.
-    sigma: noise std; if None, estimate from median singular value.
-    """
-    _, S, _ = torch.linalg.svd(img)
-    S = np.asarray(S)
-
-    m,n = img.shape
-    beta = min(m, n) / max(m, n)
-    if sigma is None:
-        # Estimate sigma from median singular value
-        sigma = np.median(S) / (np.sqrt(2) * 0.6745)
-    tau = optimal_svht_coef(beta) * np.sqrt(max(m, n)) * sigma
-    mask = (S > tau)
-    return int(mask.sum())
-
-
-
-def zoom_to_peak(
-        img, 
-        radius):
-    coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
-    img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
-    return img
-
-
-def chain(*elements):
-    def wrapped(wf):
-        for el in elements:
-            wf = el(wf)
-        return wf
-    return wrapped
 
 
 def calculate_fwhm(
@@ -113,6 +74,26 @@ def calculate_fwhm(
     print(f"Mean FWHM = {fwhm:.2f} pix \n")
     return fwhm
     
+
+
+
+def zoom_to_peak(
+        img, 
+        radius):
+    coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
+    img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
+    return img
+
+
+def chain(*elements):
+    def wrapped(wf):
+        for el in elements:
+            wf = el(wf)
+        return wf
+    return wrapped
+
+
+
 
 def generate_focal_plane(
         wavelength_sci, 
@@ -775,12 +756,46 @@ def create_pca_gif(
     """
 
     frames = []
+    frames_cadi = []
 
+    def read_img(file, label):
+        data = fits.getdata(file)
+        # v = np.nanpercentile(data, 99.5)
+        # norm = ImageNormalize((data), vmin=-v, vmax=v, 
+        #                         #stretch=AsinhStretch(), 
+        #                         clip = True)
+        
+        vmin = np.nanpercentile(np.array(data), 0.5)
+        vmax = np.nanpercentile(np.array(data), 99.5)
+
+        vmin=-0.05
+        vmax=0.05
+
+        norm = ImageNormalize(
+            np.array(data),
+            vmin=vmin,
+            vmax=vmax,
+            stretch=AsinhStretch(),
+            clip=True,
+        )        
+        
+        frame = norm(data)
+        frame = (250 * frame).astype(np.uint8)
+
+        # Convert to RGB so we can draw colored text
+        img = Image.fromarray(frame).convert("L") #instead of RGB
+        draw = ImageDraw.Draw(img)
+        draw.text(
+            (5, 5),
+            label,
+            #fill=(0,0,0),
+        )
+        return np.array(img)
+
+
+    base = Path(folder) / "residuals"
     for pca in components:
         pca_str = f"{int(pca):03d}"
-
-        base = Path(folder) / "residuals"
-
         dir1 = base / f"_PCA_{pca_str}_components"
         dir2 = base / f"PCA ({pca_str} components)"
         residual_dir = dir1 if dir1.exists() else dir2
@@ -788,32 +803,24 @@ def create_pca_gif(
         fits_files = sorted(residual_dir.glob("*.fits"))
 
         for file in fits_files:
-
-            data = fits.getdata(file)
-            v = np.nanpercentile((data), 99.5)
-            norm = ImageNormalize((data), vmin=-v, vmax=v, 
-                                  #stretch=AsinhStretch(), 
-                                  clip = True)
-            frame = norm(data)
-            frame = (250 * frame).astype(np.uint8)
-
-            # Convert to RGB so we can draw colored text
-            img = Image.fromarray(frame).convert("L") #instead of RGB
-            draw = ImageDraw.Draw(img)
             label = (
                 f"PCA = {int(pca)}\n"
                 f"{file.name}"
             )
+            img = read_img(file, label)
+            frames.append(img)
 
-            draw.text(
-                (10, 10),
-                label,
-                #fill=(0,0,0),
-            )
-            frames.append(np.array(img))
+    imageio.mimsave(f'{output_gif}_PCAD.gif', frames, duration=duration)
+    print(f"Saved GIF: {output_gif}_PCAD.gif")
 
-    imageio.mimsave(output_gif, frames, duration=duration)
-    print(f"Saved GIF: {output_gif}")
+    dir_cadi = base / "cADI"
+    if dir_cadi.exists():
+        fits_files = sorted(dir_cadi.glob("*.fits"))
+        for file in fits_files:
+            img = read_img(file, 'CADI')
+            frames_cadi.append(img)
+        imageio.mimsave(f'{output_gif}_CADI.gif', frames_cadi, duration=duration)
+        print(f"Saved GIF: {output_gif}_CADI.gif")
 
 
 def comparison(curves1, errs1, curves2, errs2,
