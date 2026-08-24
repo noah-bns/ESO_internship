@@ -37,9 +37,9 @@ from matplotlib.patches import Circle
 from photutils.aperture import CircularAperture
 
 
-import utils.statistics as stat
-importlib.reload(stat)
-from utils.statistics import *
+# import pre_process.statistics as stat
+# importlib.reload(stat)
+from pre_process.statistics import *
 # import utils.plot_pre_processing as plot
 # importlib.reload(plot)
 # from utils.plot_pre_processing import *

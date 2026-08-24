@@ -32,7 +32,7 @@ importlib.reload(applefy)
 from applefy import *
 import pipeline_pre_ADI.library.statistics as stat
 importlib.reload(stat)
-from pipeline_pre_ADI.library.statistics import *
+from pipeline_pre_ADI.pre_process.statistics import *
 #importlib.reload(applefy.detections.contrast)
 #from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
