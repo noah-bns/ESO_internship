@@ -2,6 +2,7 @@
 
 import importlib
 import utils.functions as func
+
 importlib.reload(func)
 from utils.functions import *
 
@@ -20,11 +21,16 @@ from fours.detection_limits.applefy_wrapper import (
     CADIDataReductionGPU,
     PCADataReductionGPU,
 )
-from applefy.utils import  mag2flux_ratio
+from applefy.utils import mag2flux_ratio
 from applefy.utils.positions import center_subpixel
 from applefy.wrappers.vip import MultiComponentPCAvip
 
-kwargs={'imlib':'skimage', 'interpolation':'biquintic', "nproc":None, 'verbose':False} # for speed improvement
+kwargs = {
+    "imlib": "skimage",
+    "interpolation": "biquintic",
+    "nproc": None,
+    "verbose": False,
+}  # for speed improvement
 
 
 frame_rate = 1 / 400  # s
@@ -38,9 +44,13 @@ radius_psf = 10
 radius_sc = 50
 
 sc_img_int = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/int_0.5ro_10ws.npy")
-sc_img_pred = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/pred_0.5ro_10ws.npy")
+sc_img_pred = np.load(
+    "/home/aosimul/noah/data/ghost_images/10_20ws/pred_0.5ro_10ws.npy"
+)
 psf_int = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/psf_int_0.5ro_10ws.npy")
-psf_pred = np.load("/home/aosimul/noah/data/ghost_images/10_20ws/psf_pred_0.5ro_10ws.npy")
+psf_pred = np.load(
+    "/home/aosimul/noah/data/ghost_images/10_20ws/psf_pred_0.5ro_10ws.npy"
+)
 # sc_img_int  = sc_img_int[:, ]
 # psf_int     = np.sum(sc_img_int[:n_psf],  axis = 0)
 # psf_int     = zoom_to_peak(psf_int, radius_psf)
@@ -106,7 +116,7 @@ for dataset_name, dataset in datasets.items():
     angles = np.deg2rad(angles)
 
     if grid == True:
-        path = f"{contrast_result_dir}/{name}_{dataset_name}" #_{algo_name}"
+        path = f"{contrast_result_dir}/{name}_{dataset_name}"  # _{algo_name}"
     else:
         path = f"/home/aosimul/noah/results/contrast_curves/{name}_{dataset_name}_{algo_name}"
 
@@ -176,14 +186,13 @@ for dataset_name, dataset in datasets.items():
         pca_numbers=np.array(components),
         device=device,
         work_dir=work_dir,
-        #num_pcas=components,
-        #kwarg=kwargs,
+        # num_pcas=components,
+        # kwarg=kwargs,
     )
 
     contrast_instance.run_fake_planet_experiments(
         algorithm_function=pca_algorithm_function, num_parallel=1
     )
-
 
     contrast_instance.results_dict.update(old_results)
 
@@ -215,4 +224,3 @@ for dataset_name, dataset in datasets.items():
         pickle.dump(contrast_grids, f)
 
     print("[DONE]")
-

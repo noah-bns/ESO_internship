@@ -10,6 +10,9 @@ __pycache__/
 .venv/
 venv/
 env_hci/
+.myenv/
+applefy/
+applefy_fixed/
 
 # Large data files - DO NOT COMMIT
 data/

@@ -1,0 +1,48 @@
+experiment:
+  name: 30_deg_sat_speckles
+  ori_folder: '/home/aosimul/noah/data/ghost_images/10_15_20ws/'
+
+algorithms:
+  raw_contrast: true
+  CADI: true
+  PCAD: true
+
+datasets:
+  int:
+    enabled: true
+    science_file: "int_7ro_15ws_1.npy"
+    psf_file: "master_psf.npy"
+  pred:
+    enabled: true
+    science_file: "pred_7ro_15ws_1.npy"
+    psf_file: "master_psf.npy"
+
+instrument:
+  dit_psf: 1
+  dit_science: 1.0e-2
+  # dit_factor: 25
+  # radius_psf: 10
+  # radius_sc: 50
+
+
+fake_planet:
+  flux_ratio_mag: 15 #[ 5.5, 5.9, 6.5, 6.9, 7.4, 7.8, 8.4, 8.8, 9.0, 9.3, 9.7, 10, 10.7, 11, 11.6, 12, 12.6, 13, 13.5, 14]
+  num_fake_planets: 6 #6
+  components: [2,4,6,8,10,15,20,25,30,40,50,65,80,95,110,125,140] #[10, 50, 100, 150]
+
+  separation: 1
+  max_separation: 1
+
+  device: "cuda"
+  pca_method: "gram" 
+
+  angle_start: 0
+  angle_end: 30
+
+contrast:
+
+  enabled: true         # if not enabled, only the fake planet experiment is performed
+  save_best: true                     # Save contrast curves overall best as CSV files.
+                                      # OPTIONAL, Default: false
+  raw_contrasts: null
+  range_constrast_y: null

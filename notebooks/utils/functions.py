@@ -1,5 +1,4 @@
-
-#organisation
+# organisation
 import numpy as np
 from pathlib import Path
 import warnings
@@ -11,12 +10,13 @@ import time
 import gc
 import pandas as pd
 
-#images
+# images
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-mpl.rcParams['hatch.linewidth'] = 0.5  # previous pdf hatch linewidth
+
+mpl.rcParams["hatch.linewidth"] = 0.5  # previous pdf hatch linewidth
 import torch
 import imageio.v2 as imageio
 from astropy.io import fits
@@ -25,28 +25,40 @@ from PIL import Image, ImageDraw
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.gridspec as gridspec
 
-#scientific libraries
+# scientific libraries
 from hcipy import *
 import applefy
+
 importlib.reload(applefy)
 from applefy import *
 import pipeline_pre_ADI.library.statistics as stat
+
 importlib.reload(stat)
-from pipeline_pre_ADI.pre_process.statistics import *
-#importlib.reload(applefy.detections.contrast)
-#from applefy.detections.contrast import Contrast
+from utils.statistics import *
+
+# importlib.reload(applefy.detections.contrast)
+# from applefy.detections.contrast import Contrast
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
-from applefy.statistics import TTest, gaussian_sigma_2_fpf, LaplaceBootstrapTest, fpf_2_gaussian_sigma
+from applefy.statistics import (
+    TTest,
+    gaussian_sigma_2_fpf,
+    LaplaceBootstrapTest,
+    fpf_2_gaussian_sigma,
+)
 import fours
+
 importlib.reload(fours)
-from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU, PCADataReductionGPU, CADIDataReduction
+from fours.detection_limits.applefy_wrapper import (
+    CADIDataReductionGPU,
+    PCADataReductionGPU,
+    CADIDataReduction,
+)
 from fours.models.rotation import FieldRotationModel
 
 
-def calculate_fwhm(
-        psf):
-    y, x = np.mgrid[:psf.shape[0], :psf.shape[1]]
+def calculate_fwhm(psf):
+    y, x = np.mgrid[: psf.shape[0], : psf.shape[1]]
 
     # Initial Gaussian guess
     g_init = models.Gaussian2D(
@@ -54,7 +66,7 @@ def calculate_fwhm(
         x_mean=psf.shape[1] / 2,
         y_mean=psf.shape[0] / 2,
         x_stddev=3,
-        y_stddev=3
+        y_stddev=3,
     )
 
     # Fit
@@ -73,15 +85,14 @@ def calculate_fwhm(
 
     print(f"Mean FWHM = {fwhm:.2f} pix \n")
     return fwhm
-    
 
 
-
-def zoom_to_peak(
-        img, 
-        radius):
-    coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
-    img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
+def zoom_to_peak(img, radius):
+    coords_maxpsf = np.unravel_index(np.argmax(img, axis=None), img.shape)
+    img = img[
+        coords_maxpsf[0] - radius : coords_maxpsf[0] + radius + 1,
+        coords_maxpsf[1] - radius : coords_maxpsf[1] + radius + 1,
+    ]
     return img
 
 
@@ -90,19 +101,19 @@ def chain(*elements):
         for el in elements:
             wf = el(wf)
         return wf
+
     return wrapped
 
 
-
-
 def generate_focal_plane(
-        wavelength_sci, 
-        pupil_diameter, 
-        num_pupil_pixels,
-        pupil_grid_diameter, 
-        q, 
-        num_airy, 
-        telescope = make_vlt_aperture()):
+    wavelength_sci,
+    pupil_diameter,
+    num_pupil_pixels,
+    pupil_grid_diameter,
+    q,
+    num_airy,
+    telescope=make_vlt_aperture(),
+):
     """
     Generate the telescope pupil and focal-plane propagator.
 
@@ -136,64 +147,76 @@ def generate_focal_plane(
     pupil_grid = make_pupil_grid(num_pupil_pixels, pupil_grid_diameter)
     telescope_pupil = telescope(pupil_grid)
     focal_grid = make_focal_grid(
-        q=q,
-        num_airy=num_airy,
-        spatial_resolution=spatial_resolution
+        q=q, num_airy=num_airy, spatial_resolution=spatial_resolution
     )
     propagator = FraunhoferPropagator(pupil_grid, focal_grid)
 
     return telescope_pupil, pupil_grid, propagator
 
 
-def vlt_lyot_stop(
-        grid, 
-        Lyot_ratio = 1.05, 
-        spider_ratio = 3, 
-        outer_ratio = None):
+def vlt_lyot_stop(grid, Lyot_ratio=1.05, spider_ratio=3, outer_ratio=None):
 
     if not outer_ratio:
         outer_ratio = Lyot_ratio
-    #geometry
-    spider_width            = 0.040   * Lyot_ratio * spider_ratio   # meter
-    spider_offset           = 0.4045                                # meter
-    spider_outer_radius     = 4.2197                                # meter
-    angle_between_spiders   = 101                                   # degrees
-    pupil_diameter          = 8.0     * (2 - outer_ratio)            # meter
+    # geometry
+    spider_width = 0.040 * Lyot_ratio * spider_ratio  # meter
+    spider_offset = 0.4045  # meter
+    spider_outer_radius = 4.2197  # meter
+    angle_between_spiders = 101  # degrees
+    pupil_diameter = 8.0 * (2 - outer_ratio)  # meter
     central_obscuration_ratio = 1.116 / pupil_diameter * Lyot_ratio
 
-    obstructed_aperture = make_obstructed_circular_aperture(pupil_diameter, central_obscuration_ratio)
+    obstructed_aperture = make_obstructed_circular_aperture(
+        pupil_diameter, central_obscuration_ratio
+    )
 
-    spider_inner_radius = spider_offset / np.cos(np.radians(45 - (angle_between_spiders - 90) / 2))
-    
-    spider_start = spider_inner_radius * np.array([np.cos(np.pi / 4), np.sin(np.pi / 4)])
+    spider_inner_radius = spider_offset / np.cos(
+        np.radians(45 - (angle_between_spiders - 90) / 2)
+    )
+
+    spider_start = spider_inner_radius * np.array(
+        [np.cos(np.pi / 4), np.sin(np.pi / 4)]
+    )
     spider_end_1 = spider_outer_radius * np.array([np.cos(np.pi), np.sin(np.pi)])
-    spider_end_2 = spider_outer_radius * np.array([np.cos(-np.pi / 2), np.sin(-np.pi / 2)])
+    spider_end_2 = spider_outer_radius * np.array(
+        [np.cos(-np.pi / 2), np.sin(-np.pi / 2)]
+    )
     spider_end_3 = spider_outer_radius * np.array([np.cos(0), np.sin(0)])
-    spider_end_4 = spider_outer_radius * np.array([np.cos(np.pi / 2), np.sin(np.pi / 2)])
+    spider_end_4 = spider_outer_radius * np.array(
+        [np.cos(np.pi / 2), np.sin(np.pi / 2)]
+    )
 
-    #generate the spiders
+    # generate the spiders
     spider1 = make_spider(-spider_start, spider_end_1, spider_width)
     spider2 = make_spider(-spider_start, spider_end_2, spider_width)
-    spider3 = make_spider( spider_start, spider_end_3, spider_width)
-    spider4 = make_spider( spider_start, spider_end_4, spider_width)
+    spider3 = make_spider(spider_start, spider_end_3, spider_width)
+    spider4 = make_spider(spider_start, spider_end_4, spider_width)
 
-    return Field(obstructed_aperture(grid) * spider1(grid) * spider2(grid) * spider3(grid) * spider4(grid), grid)
+    return Field(
+        obstructed_aperture(grid)
+        * spider1(grid)
+        * spider2(grid)
+        * spider3(grid)
+        * spider4(grid),
+        grid,
+    )
 
 
 def create_wavefront(
-        telescope_pupil, 
-        pupil_grid, 
-        wavelength_sci, 
-                     stellar_magnitude = None, 
-                     zero_magnitude_flux = 1.7e10, #photon/s VLT value (from Jalo)
-                     frame_rate = 1, #s
-                     angular_separation = 0, 
-                     position_angle = 0,   
-                     num_photons_star = 1, 
-                     contrast = 1):
+    telescope_pupil,
+    pupil_grid,
+    wavelength_sci,
+    stellar_magnitude=None,
+    zero_magnitude_flux=1.7e10,  # photon/s VLT value (from Jalo)
+    frame_rate=1,  # s
+    angular_separation=0,
+    position_angle=0,
+    num_photons_star=1,
+    contrast=1,
+):
     """
     The function creates wavefront objects, with the possibility to assign it an intensity (in terms of absolute magnitude, or directly flux), and a phase.
-    
+
     Inputs:
     ----------
     telescope_pupil:        pupil object (field)
@@ -206,59 +229,54 @@ def create_wavefront(
     position_angle :        float Position angle in radians. Measured counterclockwise from +x.
     num_photons_star:       flux in photons per second of the star in field of view, by default correspond to a normalised intensity of 1
     contrast:               float correspondind to the ratio of WF intensity over the intensity of the brightest star in field of view, dimensionless, by default zero
-    
+
     Return:
     -----------
     wf:                     wavefront object with an integrated intensity for a "frame_rate" duration.
     """
 
     if stellar_magnitude:
-        num_photons_star = zero_magnitude_flux * 10**(-stellar_magnitude/2.5)
+        num_photons_star = zero_magnitude_flux * 10 ** (-stellar_magnitude / 2.5)
     # Phase ramp direction
-    x_rot = (
-        pupil_grid.x * np.cos(position_angle)
-        + pupil_grid.y * np.sin(position_angle)
+    x_rot = pupil_grid.x * np.cos(position_angle) + pupil_grid.y * np.sin(
+        position_angle
     )
 
-    pos = telescope_pupil * np.exp(
-        2j * np.pi * x_rot * angular_separation
-    )
+    pos = telescope_pupil * np.exp(2j * np.pi * x_rot * angular_separation)
 
     wf = Wavefront(pos, wavelength_sci)
     wf.total_power = num_photons_star * frame_rate * contrast
     return wf
 
 
-def phase2apodizer(
-        phase_screen, 
-        telescope_pupil, 
-        pupil_grid = None):
+def phase2apodizer(phase_screen, telescope_pupil, pupil_grid=None):
     if not isinstance(phase_screen, Field):
         phase_screen = Field(phase_screen, pupil_grid).flatten()
     phase_screen[telescope_pupil.astype(bool)] -= np.mean(
         phase_screen[telescope_pupil.astype(bool)]
     )
     phase = SurfaceApodizer(
-        .5 * phase_screen, #bcs the -1 refractive index doubles the aberration
-        refractive_index=-1
+        0.5 * phase_screen,  # bcs the -1 refractive index doubles the aberration
+        refractive_index=-1,
     )
     return phase
 
 
 def generate_aberrated_frames(
-        telescope_pupil, 
-        propagator,
-        pupil_grid_diameter, 
-        pupil_grid,
-        wavelength_sci, 
-        wavefronts,
-        additional_phase = None,
-        ptv=None, 
-        coro=None,
-        fried_parameter=None, 
-        outer_scale=None,
-        velocity=None, 
-        shot_noise=False):
+    telescope_pupil,
+    propagator,
+    pupil_grid_diameter,
+    pupil_grid,
+    wavelength_sci,
+    wavefronts,
+    additional_phase=None,
+    ptv=None,
+    coro=None,
+    fried_parameter=None,
+    outer_scale=None,
+    velocity=None,
+    shot_noise=False,
+):
     """
     Simulate a coronagraphic science image with optional aberrations,
     atmospheric turbulence, and photon noise.
@@ -303,15 +321,8 @@ def generate_aberrated_frames(
 
     if fried_parameter:
         # atmosphere
-        Cn_squared = Cn_squared_from_fried_parameter(
-            fried_parameter,
-            wavelength_sci
-        )
-        layer = InfiniteAtmosphericLayer(
-            pupil_grid,
-            Cn_squared,
-            outer_scale,
-            velocity)
+        Cn_squared = Cn_squared_from_fried_parameter(fried_parameter, wavelength_sci)
+        layer = InfiniteAtmosphericLayer(pupil_grid, Cn_squared, outer_scale, velocity)
         wavefronts = [layer(wf) for wf in wavefronts]
 
     if additional_phase is not None:
@@ -324,10 +335,7 @@ def generate_aberrated_frames(
     if ptv:
         # ncpa
         ncpas = make_power_law_error(
-            pupil_grid,
-            ptv,
-            pupil_grid_diameter,
-            -2.5
+            pupil_grid, ptv, pupil_grid_diameter, -2.5
         ).squeeze()
         ncpa_surface = phase2apodizer(ncpas, telescope_pupil)
         wavefronts = [ncpa_surface(wf) for wf in wavefronts]
@@ -344,15 +352,15 @@ def generate_aberrated_frames(
 
 
 def fake_planet_experiment(
-        contrast_instance, 
-        flux_ratio, 
-        num_fake_planets, 
-        components,
-        version = 'PCAD',
-        separations = None,
-        approx_svd = -1,
-        device = 'cpu'
-        ):
+    contrast_instance,
+    flux_ratio,
+    num_fake_planets,
+    components,
+    version="PCAD",
+    separations=None,
+    approx_svd=-1,
+    device="cpu",
+):
     """
     Run a fake planet injection and recovery experiment following the
     Appleby tutorial workflow.
@@ -377,7 +385,12 @@ def fake_planet_experiment(
         Number of PCA components used in the
         ``MultiComponentPCAPynPoint`` algorithm.
     """
-    kwargs={'imlib':'skimage', 'interpolation':'biquintic', "nproc":None, 'verbose':False} # for speed improvement
+    kwargs = {
+        "imlib": "skimage",
+        "interpolation": "biquintic",
+        "nproc": None,
+        "verbose": False,
+    }  # for speed improvement
 
     # contrast_instance.design_fake_planet_experiments(
     #     flux_ratios=flux_ratio,
@@ -386,7 +399,7 @@ def fake_planet_experiment(
     #     overwrite=True,
     #     )
 
-    num_parallel = cpu_count()//2
+    num_parallel = cpu_count() // 2
 
     # grid = False
     # if isinstance(flux_ratio, (np.ndarray, list)):
@@ -395,47 +408,40 @@ def fake_planet_experiment(
     #  #   num_pcas=components,
     #   #  scratch_dir=contrast_instance.scratch_dir,
     #    # num_cpus_pynpoint=1)
-    if version == 'PCAD':
+    if version == "PCAD":
         # if grid == False:
         # work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
         # work_dir.mkdir(exist_ok=True)
         algorithm_function = PCADataReductionGPU(
-                pca_numbers = components,
-                approx_svd = approx_svd, # truncated for large tensor calculations 
-                device = device,
-                # work_dir = work_dir,
-                )
+            pca_numbers=components,
+            approx_svd=approx_svd,  # truncated for large tensor calculations
+            device=device,
+            # work_dir = work_dir,
+        )
         # if grid == True:
-            # algorithm_function = MultiComponentPCAvip(
-            #     num_pcas=components,
-            #     kwarg=kwargs)
-                    
-    if version == 'CADI':
-        algorithm_function = CADIDataReductionGPU(
-            device = device
-                )
-        
+        # algorithm_function = MultiComponentPCAvip(
+        #     num_pcas=components,
+        #     kwarg=kwargs)
+
+    if version == "CADI":
+        algorithm_function = CADIDataReductionGPU(device=device)
+
     try:
         contrast_instance.run_fake_planet_experiments(
-            algorithm_function=algorithm_function,
-            num_parallel=num_parallel)
+            algorithm_function=algorithm_function, num_parallel=num_parallel
+        )
     except:
         # can fail in multiprocessing, depending on whether optional dependencies are installed or not
-        num_parallel=1
+        num_parallel = 1
         contrast_instance.run_fake_planet_experiments(
-            algorithm_function=algorithm_function,
-            num_parallel=num_parallel)
+            algorithm_function=algorithm_function, num_parallel=num_parallel
+        )
     return contrast_instance
 
 
 def compute_contrast_curves(
-        contrast_instance, 
-        fwhm, 
-        pixel_scale, 
-        photometry = 'FS', 
-        test = 't-test',
-        grid = False
-        ):
+    contrast_instance, fwhm, pixel_scale, photometry="FS", test="t-test", grid=False
+):
     """
     Compute analytic contrast curves for a processed high-contrast imaging
     dataset using the Appleby tutorial workflow.
@@ -462,7 +468,7 @@ def compute_contrast_curves(
         - ``'bootstrap'`` : Laplacian residual noise model following
           Bonse et al. (2023)
     pixel_scale: pixel size in arcsec to convert FWHM
-    
+
     Returns
     -------
     contrast_curves : object
@@ -477,39 +483,42 @@ def compute_contrast_curves(
         provided.
     """
 
-    if photometry == 'FS':# Use spaced pixel values
+    if photometry == "FS":  # Use spaced pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "F", # or "P"
-            psf_fwhm_radius=fwhm/2,
-            search_area=0.5)
-        photometry_mode_noise = AperturePhotometryMode(
-            "P",
-            psf_fwhm_radius=fwhm/2)    
-    elif photometry == 'AS': # Use apertures pixel values
+            "F", psf_fwhm_radius=fwhm / 2, search_area=0.5  # or "P"
+        )
+        photometry_mode_noise = AperturePhotometryMode("P", psf_fwhm_radius=fwhm / 2)
+    elif photometry == "AS":  # Use apertures pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "ASS", # or "AS"
-            psf_fwhm_radius=fwhm/2,
-            search_area=0.5)
+            "ASS", psf_fwhm_radius=fwhm / 2, search_area=0.5  # or "AS"
+        )
 
-        photometry_mode_noise = AperturePhotometryMode(
-            "AS",
-            psf_fwhm_radius=fwhm/2)
+        photometry_mode_noise = AperturePhotometryMode("AS", psf_fwhm_radius=fwhm / 2)
     else:
         # Issue a warning
-        warnings.warn("Photometry style not recognized, 'FS' for spaced pixel values and 'AS' for aperture sums.", UserWarning)
+        warnings.warn(
+            "Photometry style not recognized, 'FS' for spaced pixel values and 'AS' for aperture sums.",
+            UserWarning,
+        )
 
     contrast_instance.prepare_contrast_results(
         photometry_mode_planet=photometry_mode_planet,
-        photometry_mode_noise=photometry_mode_noise)
-    
-    if test == 't-test':
+        photometry_mode_noise=photometry_mode_noise,
+    )
+
+    if test == "t-test":
         statistical_test = TTest()
-    elif test == 'bootstrap':
-        #The Parametric Bootstrap test as discussed in (Bonse et al. 2023) (assumes Laplacian residual noise). You can download the lookup from Zenodo.
-        statistical_test = LaplaceBootstrapTest.construct_from_json_file("file/to/lookup_table")
+    elif test == "bootstrap":
+        # The Parametric Bootstrap test as discussed in (Bonse et al. 2023) (assumes Laplacian residual noise). You can download the lookup from Zenodo.
+        statistical_test = LaplaceBootstrapTest.construct_from_json_file(
+            "file/to/lookup_table"
+        )
     else:
         # Issue a warning
-        warnings.warn("Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).", UserWarning)
+        warnings.warn(
+            "Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).",
+            UserWarning,
+        )
 
     if grid:
         contrast_curves, contrast_errors = contrast_instance.compute_contrast_grids(
@@ -517,31 +526,37 @@ def compute_contrast_curves(
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
             num_rot_iter=10,
             safety_margin=2.5,
-            num_cores=45, # num_parallel,
-            pixel_scale= pixel_scale)    
+            num_cores=45,  # num_parallel,
+            pixel_scale=pixel_scale,
+        )
     else:
-        contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
-            statistical_test=statistical_test,
-            confidence_level_fpf=gaussian_sigma_2_fpf(5),
-            num_rot_iter=20,
-            pixel_scale= pixel_scale)
+        contrast_curves, contrast_errors = (
+            contrast_instance.compute_analytic_contrast_curves(
+                statistical_test=statistical_test,
+                confidence_level_fpf=gaussian_sigma_2_fpf(5),
+                num_rot_iter=20,
+                pixel_scale=pixel_scale,
+            )
+        )
 
     return contrast_curves, contrast_errors
 
 
 def plot_contrast_curves(
-        contrast_curves, 
-        contrast_errors, 
-        lim_mag_y,
-        lim_arcsec = None, 
-        title = None,
-        cmap = "magma",
-        x_axis = None,
-        x_axis_label = None,
-        alpha = 0.7,
-        ):
+    contrast_curves,
+    contrast_errors,
+    lim_mag_y,
+    lim_arcsec=None,
+    title=None,
+    cmap="magma",
+    x_axis=None,
+    x_axis_label=None,
+    alpha=0.7,
+):
     # compute the overall best contrast curve
-    PADI_values = contrast_curves.loc[:, ~contrast_curves.columns.str.contains("cADI", regex=True)]
+    PADI_values = contrast_curves.loc[
+        :, ~contrast_curves.columns.str.contains("cADI", regex=True)
+    ]
     overall_best = np.min(PADI_values.values, axis=1)
 
     # get the error bars of the the overall best contrast curve
@@ -549,8 +564,11 @@ def plot_contrast_curves(
     best_contrast_errors = contrast_errors.values[np.arange(len(best_idx)), best_idx]
 
     # Find one color for each number of PCA components used
-    color_map = plt.cm.get_cmap(cmap)   # seaborn-style colormap available in mpl
-    colors = [color_map(int(i)) for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))]
+    color_map = plt.cm.get_cmap(cmap)  # seaborn-style colormap available in mpl
+    colors = [
+        color_map(int(i))
+        for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))
+    ]
 
     if x_axis:
         separations_arcsec = contrast_curves.reset_index(level=0).index * x_axis
@@ -563,173 +581,148 @@ def plot_contrast_curves(
     gs0 = fig.add_gridspec(1, 1)
     axis_contrast_curvse = fig.add_subplot(gs0[0, 0])
 
-
     # ---------------------- Create the Plot --------------------
-    i = 0 # color picker
+    i = 0  # color picker
     for tmp_model in contrast_curves.columns:
-        
-        if 'cADI'.lower() in tmp_model.lower():
-            num_components = 'cADI'
-            color = 'red'
+
+        if "cADI".lower() in tmp_model.lower():
+            num_components = "cADI"
+            color = "red"
         else:
             num_components = int(tmp_model[5:8])
             color = colors[i]
-            i+=1
-        tmp_flux_ratios = contrast_curves.reset_index(
-            level=0)[tmp_model].values
-        tmp_errors = contrast_errors.reset_index(
-            level=0)[tmp_model].values
+            i += 1
+        tmp_flux_ratios = contrast_curves.reset_index(level=0)[tmp_model].values
+        tmp_errors = contrast_errors.reset_index(level=0)[tmp_model].values
 
         axis_contrast_curvse.plot(
             separations_arcsec,
             tmp_flux_ratios,
-            color = color,
-            alpha = alpha,
-            label=num_components)
+            color=color,
+            alpha=alpha,
+            label=num_components,
+        )
 
         axis_contrast_curvse.fill_between(
             separations_arcsec,
             tmp_flux_ratios + tmp_errors,
             tmp_flux_ratios - tmp_errors,
-            color = color,
-            alpha=alpha/2)
-        
+            color=color,
+            alpha=alpha / 2,
+        )
 
     axis_contrast_curvse.set_yscale("log")
     # ------------ Plot the overall best -------------------------
     axis_contrast_curvse.plot(
-        separations_arcsec,
-        overall_best,
-        color = "blue",
-        lw=3,
-        ls="--",
-        label="Best")
+        separations_arcsec, overall_best, color="blue", lw=3, ls="--", label="Best"
+    )
 
     # ------------- Double axis and limits -----------------------
     if lim_arcsec:
         lim_arcsec_x = lim_arcsec
     else:
-        lim_arcsec_x = (np.min(separations_arcsec) - 0.1, np.max(separations_arcsec) + 0.1)
+        lim_arcsec_x = (
+            np.min(separations_arcsec) - 0.1,
+            np.max(separations_arcsec) + 0.1,
+        )
 
     sep_lambda_arcse = interpolate.interp1d(
-        separations_arcsec,
-        separations_FWHM,
-        fill_value='extrapolate')
+        separations_arcsec, separations_FWHM, fill_value="extrapolate"
+    )
 
     axis_contrast_curvse_mag = axis_contrast_curvse.twinx()
     axis_contrast_curvse_mag.plot(
-        separations_arcsec,
-        flux_ratio2mag(tmp_flux_ratios),
-        alpha=0.)
+        separations_arcsec, flux_ratio2mag(tmp_flux_ratios), alpha=0.0
+    )
     axis_contrast_curvse_mag.invert_yaxis()
 
     axis_contrast_curvse_lambda = axis_contrast_curvse.twiny()
-    axis_contrast_curvse_lambda.plot(
-        separations_FWHM,
-        tmp_flux_ratios,
-        alpha=0.)
+    axis_contrast_curvse_lambda.plot(separations_FWHM, tmp_flux_ratios, alpha=0.0)
 
-    axis_contrast_curvse.grid(which='both')
+    axis_contrast_curvse.grid(which="both")
     axis_contrast_curvse_mag.set_ylim(*lim_mag_y)
     axis_contrast_curvse.set_ylim(
-        mag2flux_ratio(lim_mag_y[0]),
-        mag2flux_ratio(lim_mag_y[1]))
+        mag2flux_ratio(lim_mag_y[0]), mag2flux_ratio(lim_mag_y[1])
+    )
 
-    axis_contrast_curvse.set_xlim(
-        *lim_arcsec_x)
-    axis_contrast_curvse_mag.set_xlim(
-        *lim_arcsec_x)
-    axis_contrast_curvse_lambda.set_xlim(
-        *sep_lambda_arcse(lim_arcsec_x))
+    axis_contrast_curvse.set_xlim(*lim_arcsec_x)
+    axis_contrast_curvse_mag.set_xlim(*lim_arcsec_x)
+    axis_contrast_curvse_lambda.set_xlim(*sep_lambda_arcse(lim_arcsec_x))
 
     # ----------- Labels and fontsizes --------------------------
     if x_axis_label:
         x_axis_labelling = x_axis_label
     else:
         x_axis_labelling = r"Separation [arcsec]"
-    axis_contrast_curvse.set_xlabel(
-        x_axis_labelling, size=16)
-    axis_contrast_curvse_lambda.set_xlabel(
-        r"Separation [FWHM]", size=16)
+    axis_contrast_curvse.set_xlabel(x_axis_labelling, size=16)
+    axis_contrast_curvse_lambda.set_xlabel(r"Separation [FWHM]", size=16)
 
-    axis_contrast_curvse.set_ylabel(
-        r"Planet-to-star flux ratio", size=16)
-    axis_contrast_curvse_mag.set_ylabel(
-        r"$\Delta$ Magnitude", size=16)
+    axis_contrast_curvse.set_ylabel(r"Planet-to-star flux ratio", size=16)
+    axis_contrast_curvse_mag.set_ylabel(r"$\Delta$ Magnitude", size=16)
 
-    axis_contrast_curvse.tick_params(
-        axis='both', which='major', labelsize=14)
-    axis_contrast_curvse_lambda.tick_params(
-        axis='both', which='major', labelsize=14)
-    axis_contrast_curvse_mag.tick_params(
-        axis='both', which='major', labelsize=14)
+    axis_contrast_curvse.tick_params(axis="both", which="major", labelsize=14)
+    axis_contrast_curvse_lambda.tick_params(axis="both", which="major", labelsize=14)
+    axis_contrast_curvse_mag.tick_params(axis="both", which="major", labelsize=14)
 
     if title:
         set_title = title
     else:
         set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
-    axis_contrast_curvse_mag.set_title(
-        set_title,
-        fontsize=18, fontweight="bold", y=1.1)
+    axis_contrast_curvse_mag.set_title(set_title, fontsize=18, fontweight="bold", y=1.1)
 
     # --------------------------- Legend -----------------------
-    handles, labels = axis_contrast_curvse.\
-        get_legend_handles_labels()
+    handles, labels = axis_contrast_curvse.get_legend_handles_labels()
 
-    leg1 = fig.legend(handles, labels,
-                    bbox_to_anchor=(0.12, -0.1),
-                    fontsize=14,
-                    title="# PCA components",
-                    loc='lower left', ncol=8)
+    leg1 = fig.legend(
+        handles,
+        labels,
+        bbox_to_anchor=(0.12, -0.1),
+        fontsize=14,
+        title="# PCA components",
+        loc="lower left",
+        ncol=8,
+    )
 
-    _=plt.setp(leg1.get_title(),fontsize=14)
+    _ = plt.setp(leg1.get_title(), fontsize=14)
 
 
 def plot_best_PCA_number(
-        contrast_curves_list, 
-        components, 
-        lables = None, 
-        colors = ['red', 'blue']
-        ):
+    contrast_curves_list, components, lables=None, colors=["red", "blue"]
+):
     plt.figure(figsize=(12, 8))
 
-
-
     separations_arcsec = contrast_curves_list[-1].reset_index(level=0).index
-    plt.plot(separations_arcsec,
-            np.array(components)[np.argmin(
-                contrast_curves_list[-1].values,
-                axis=1)])
-        
-    plt.title(r"Best number of PCA components",
-            fontsize=18, fontweight="bold", y=1.1)
+    plt.plot(
+        separations_arcsec,
+        np.array(components)[np.argmin(contrast_curves_list[-1].values, axis=1)],
+    )
 
-    plt.tick_params(axis='both', which='major', labelsize=14)
+    plt.title(r"Best number of PCA components", fontsize=18, fontweight="bold", y=1.1)
+
+    plt.tick_params(axis="both", which="major", labelsize=14)
     plt.xlabel("Separation [arcsec]", fontsize=16)
     plt.ylabel("Number of PCA components", fontsize=16)
-    plt.xlim(left = np.min(separations_arcsec), right = np.max(separations_arcsec))
-
+    plt.xlim(left=np.min(separations_arcsec), right=np.max(separations_arcsec))
 
     plt.grid()
 
-    #create second x axis 
-    #note: must have the same separations
+    # create second x axis
+    # note: must have the same separations
     ax2 = plt.twiny()
     for i, contrast_curves in enumerate(contrast_curves_list):
         separations_FWHM = contrast_curves.reset_index(level=1).index
 
-        ax2.plot(separations_FWHM,
-                    np.array(components)[
-                        np.argmin(contrast_curves.values, axis=1)],
-                        label = lables[i] if lables else None,
-                        color = colors[i]
-                )
+        ax2.plot(
+            separations_FWHM,
+            np.array(components)[np.argmin(contrast_curves.values, axis=1)],
+            label=lables[i] if lables else None,
+            color=colors[i],
+        )
 
     ax2.set_xlabel("Separation [FWHM]", fontsize=16)
-    ax2.tick_params(axis='both', which='major', labelsize=14)
-    ax2.set_xlim(left = np.min(separations_FWHM), right = np.max(separations_FWHM))
-    plt.legend(fontsize=14,
-                    loc='upper right')
+    ax2.tick_params(axis="both", which="major", labelsize=14)
+    ax2.set_xlim(left=np.min(separations_FWHM), right=np.max(separations_FWHM))
+    plt.legend(fontsize=14, loc="upper right")
 
 
 def create_pca_gif(
@@ -761,15 +754,15 @@ def create_pca_gif(
     def read_img(file, label):
         data = fits.getdata(file)
         # v = np.nanpercentile(data, 99.5)
-        # norm = ImageNormalize((data), vmin=-v, vmax=v, 
-        #                         #stretch=AsinhStretch(), 
+        # norm = ImageNormalize((data), vmin=-v, vmax=v,
+        #                         #stretch=AsinhStretch(),
         #                         clip = True)
-        
+
         vmin = np.nanpercentile(np.array(data), 0.5)
         vmax = np.nanpercentile(np.array(data), 99.5)
 
-        vmin=-0.05
-        vmax=0.05
+        vmin = -0.05
+        vmax = 0.05
 
         norm = ImageNormalize(
             np.array(data),
@@ -777,21 +770,20 @@ def create_pca_gif(
             vmax=vmax,
             stretch=AsinhStretch(),
             clip=True,
-        )        
-        
+        )
+
         frame = norm(data)
         frame = (250 * frame).astype(np.uint8)
 
         # Convert to RGB so we can draw colored text
-        img = Image.fromarray(frame).convert("L") #instead of RGB
+        img = Image.fromarray(frame).convert("L")  # instead of RGB
         draw = ImageDraw.Draw(img)
         draw.text(
             (5, 5),
             label,
-            #fill=(0,0,0),
+            # fill=(0,0,0),
         )
         return np.array(img)
-
 
     base = Path(folder) / "residuals"
     for pca in components:
@@ -803,30 +795,24 @@ def create_pca_gif(
         fits_files = sorted(residual_dir.glob("*.fits"))
 
         for file in fits_files:
-            label = (
-                f"PCA = {int(pca)}\n"
-                f"{file.name}"
-            )
+            label = f"PCA = {int(pca)}\n" f"{file.name}"
             img = read_img(file, label)
             frames.append(img)
 
-    imageio.mimsave(f'{output_gif}_PCAD.gif', frames, duration=duration)
+    imageio.mimsave(f"{output_gif}_PCAD.gif", frames, duration=duration)
     print(f"Saved GIF: {output_gif}_PCAD.gif")
 
     dir_cadi = base / "cADI"
     if dir_cadi.exists():
         fits_files = sorted(dir_cadi.glob("*.fits"))
         for file in fits_files:
-            img = read_img(file, 'CADI')
+            img = read_img(file, "CADI")
             frames_cadi.append(img)
-        imageio.mimsave(f'{output_gif}_CADI.gif', frames_cadi, duration=duration)
+        imageio.mimsave(f"{output_gif}_CADI.gif", frames_cadi, duration=duration)
         print(f"Saved GIF: {output_gif}_CADI.gif")
 
 
-def comparison(curves1, errs1, curves2, errs2,
-               title=None,
-               cmap="winter"):
-
+def comparison(curves1, errs1, curves2, errs2, title=None, cmap="winter"):
 
     delta = curves1 - curves2
 
@@ -858,39 +844,26 @@ def comparison(curves1, errs1, curves2, errs2,
         ax.fill_between(
             x_local,
             (e1.values + e2.values),
-            - (e1.values + e2.values),
-            facecolor='none',
-            edgecolor='black' if col == 'cADI' else colors[i],
-            hatch='/',
+            -(e1.values + e2.values),
+            facecolor="none",
+            edgecolor="black" if col == "cADI" else colors[i],
+            hatch="/",
             linewidth=0.2,
-            label = 'Cumulative error bar' if i==len(delta.columns)-1 else None
+            label="Cumulative error bar" if i == len(delta.columns) - 1 else None,
         )
 
         ax.plot(
             x_local,
             y,
-            color='black' if col =='cADI' else colors[i],
-            label='CADI' if col =='cADI' else f'{int(col[5:8])} PCA',
-            alpha = 0.7
+            color="black" if col == "cADI" else colors[i],
+            label="CADI" if col == "cADI" else f"{int(col[5:8])} PCA",
+            alpha=0.7,
         )
 
-        ax.scatter(
-            x_local[overlap],
-            y[overlap],
-            color="green",
-            s=25,
-            zorder=11
-        )
+        ax.scatter(x_local[overlap], y[overlap], color="green", s=25, zorder=11)
 
-        ax.scatter(
-            x_local[~overlap],
-            y[~overlap],
-            color="red",
-            s=25,
-            zorder=11
-        )
+        ax.scatter(x_local[~overlap], y[~overlap], color="red", s=25, zorder=11)
 
-        
     ax.axhline(0, color="black", ls="--", linewidth=0.4)
     ax.set_yscale("symlog", linthresh=1e-6)
     ax.set_ylabel("Planet-to-Star flux ratio")
@@ -899,24 +872,36 @@ def comparison(curves1, errs1, curves2, errs2,
 
     if title:
         ax.set_title(title)
-    
+
     component_handles, component_labels = ax.get_legend_handles_labels()
 
     status_handles = [
-        Line2D([0], [0], marker='o', color='w',
-            markerfacecolor='green', markersize=8,
-            label='Error bars overlap'),
-        Line2D([0], [0], marker='o', color='w',
-            markerfacecolor='red', markersize=8,
-            label='No overlap')
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="green",
+            markersize=8,
+            label="Error bars overlap",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="red",
+            markersize=8,
+            label="No overlap",
+        ),
     ]
 
     ax.legend(
         component_handles + status_handles,
-        component_labels + ['Error bars overlap', 'No overlap'],
+        component_labels + ["Error bars overlap", "No overlap"],
         fontsize=10,
-        loc = 'upper right',
-        ncols = 2
+        loc="upper right",
+        ncols=2,
     )
 
     return fig, ax
@@ -934,10 +919,10 @@ def _get_pca_fitter(
 ) -> callable:
     """
     Select and return the appropriate PCA fitting function based on method and data shape.
-    
+
     Returns a callable that takes (X) and returns (components, singular_values).
     """
-    
+
     # Auto-select method if needed
     if pca_method == "auto":
         if n_components >= 0.8 * min(n_samples, n_features):
@@ -948,51 +933,53 @@ def _get_pca_fitter(
             method = "lowrank"
     else:
         method = pca_method
-    
+
     if method == "svd":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Exact reduced SVD."""
             _, S, Vh = torch.linalg.svd(X, full_matrices=False)
             components = Vh[:n_components]
-            #singular_values = S[:n_components]
-            return components #, singular_values
-        
+            # singular_values = S[:n_components]
+            return components  # , singular_values
+
         return fitter, method
-    
+
     elif method == "gram":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Exact PCA via sample Gram matrix."""
             eps_val = eps if eps is not None else float(torch.finfo(X.dtype).eps)
-            
+
             C = X @ X.T  # (n_samples, n_samples)
             evals, U = torch.linalg.eigh(C)
-            
+
             # Sort by largest eigenvalues
             idx = torch.argsort(evals, descending=True)
             evals = evals[idx]
             U = U[:, idx]
-            
+
             evals = evals[:n_components]
             U = U[:, :n_components]
-            
+
             singular_values = torch.sqrt(torch.clamp(evals, min=0.0))
-            
+
             # Filter out invalid singular values
             valid = singular_values > eps_val
             if not torch.any(valid):
                 raise RuntimeError("All singular values are numerically zero.")
-            
+
             U_valid = U[:, valid]
             S_valid = singular_values[valid]
-            
+
             # Compute right singular vectors: V = X.T @ U @ diag(1/S)
             V = X.T @ (U_valid / S_valid)
-            
+
             # Improve numerical orthogonality
             V, _ = torch.linalg.qr(V, mode="reduced")
-            
+
             components = V[:, :n_components].T
-            
+
             # Pad if needed to maintain consistent shapes
             if components.shape[0] < n_components:
                 missing = n_components - components.shape[0]
@@ -1003,7 +990,7 @@ def _get_pca_fitter(
                     dtype=X.dtype,
                 )
                 components = torch.cat([components, pad_components], dim=0)
-                
+
             #     pad_singular_values = torch.zeros(
             #         missing,
             #         device=X.device,
@@ -1012,56 +999,56 @@ def _get_pca_fitter(
             #     singular_values = torch.cat([S_valid, pad_singular_values], dim=0)
             # else:
             #     singular_values = singular_values[:n_components]
-            
-            return components #, singular_values
-        
+
+            return components  # , singular_values
+
         return fitter, method
-    
+
     elif method == "lowrank":
+
         def fitter(X: torch.Tensor) -> torch.Tensor:
             """Randomized approximate low-rank PCA."""
             q = min(
                 n_components + oversample,
                 min(X.shape),
             )
-            
+
             _, S, V = torch.pca_lowrank(
                 X,
                 q=q,
                 center=False,
                 niter=niter,
             )
-            
+
             components = V[:, :n_components].T
-            #singular_values = S[:n_components]
-            return components #, singular_values
-        
+            # singular_values = S[:n_components]
+            return components  # , singular_values
+
         return fitter, method
-    
+
     else:
         raise ValueError(f"Invalid PCA method: {pca_method}")
-    
 
 
 def pca_psf_subtraction_gpu(
-        images: np.ndarray,
-        angles: np.ndarray,
-        pca_numbers: np.ndarray,
-        device: str = "auto",
-        pca_method: str = "auto",
-        oversample: int = 5,
-        niter: int = 2,
-        gram_threshold: float = 0.5,
-        random_state: int | None = None,
-        eps: float | None = None,
-        subsample_rotation_grid: int = 1,
-        verbose: bool = False,
-        combine: str = "mean",
-        dtype: torch.dtype = torch.float32,
+    images: np.ndarray,
+    angles: np.ndarray,
+    pca_numbers: np.ndarray,
+    device: str = "auto",
+    pca_method: str = "auto",
+    oversample: int = 5,
+    niter: int = 2,
+    gram_threshold: float = 0.5,
+    random_state: int | None = None,
+    eps: float | None = None,
+    subsample_rotation_grid: int = 1,
+    verbose: bool = False,
+    combine: str = "mean",
+    dtype: torch.dtype = torch.float32,
 ) -> np.ndarray:
     """
     PCA-based PSF subtraction using PCATorch.
-    
+
     Parameters
     ----------
     images : np.ndarray
@@ -1075,7 +1062,7 @@ def pca_psf_subtraction_gpu(
     """
 
     if device == "auto":
-        device = ("cuda" if torch.cuda.is_available() else "cpu")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
     pca_numbers = np.asarray(pca_numbers, dtype=int)
 
@@ -1084,14 +1071,13 @@ def pca_psf_subtraction_gpu(
 
     if np.any(pca_numbers < 1):
         raise ValueError("All PCA numbers should be >= 1.")
-    
 
     with torch.no_grad():
         t0 = time.perf_counter()
 
         # 1.) Convert images to torch tensor
         im_shape = images.shape
-        #images_torch = torch.from_numpy(images).to(device)
+        # images_torch = torch.from_numpy(images).to(device)
         n_frames, height, width = im_shape
         images_torch = torch.as_tensor(images, device=device, dtype=dtype)
 
@@ -1102,15 +1088,14 @@ def pca_psf_subtraction_gpu(
         images_torch = images_torch - images_torch.mean(dim=0)
 
         # 3.) reshape images to fit for PCA
-        #images_flat = images_torch.view(im_shape[0], im_shape[1] * im_shape[2])
+        # images_flat = images_torch.view(im_shape[0], im_shape[1] * im_shape[2])
         images_flat = images_torch.reshape(n_frames, height * width)
-        
+
         # 4.) Fit PCA using PCATorch
         if verbose:
             print(f"Fit PCA ({pca_method}) ...", end="")
 
-        
-        #### 
+        ####
         # based off https://github.com/markusbonse/near_processing/blob/main/near_processing/utils/pca.py#L11 PCATorch class
         ####
 
@@ -1126,7 +1111,7 @@ def pca_psf_subtraction_gpu(
         #     random_state=random_state,
         #     eps=eps,
         # )
-        
+
         # pca.fit(images_flat)
 
         # Get the appropriate PCA fitter
@@ -1170,7 +1155,7 @@ def pca_psf_subtraction_gpu(
             input_size=im_shape[1],
             subsample=subsample_rotation_grid,
             inverse=False,
-            register_grid=True
+            register_grid=True,
         ).to(device)
 
         t3 = time.perf_counter()
@@ -1184,13 +1169,12 @@ def pca_psf_subtraction_gpu(
         for pca_number in pca_numbers:
             pca_number = int(pca_number)
 
-
             # Project onto PCA components
             pca_scores = images_flat @ components.T  # shape: (n_frames, pca_number)
-            
+
             # Reconstruct noise model
             noise_estimate = pca_scores @ components  # shape: (n_frames, n_features)
-            
+
             # Compute residuals
             residual = images_flat - noise_estimate
             residual_sequence = residual.view(im_shape[0], im_shape[1], im_shape[2])
@@ -1198,12 +1182,14 @@ def pca_psf_subtraction_gpu(
 
             # Subtract temporal median if not using mean combine
             if combine != "mean":
-                residual_sequence = residual_sequence - torch.median(residual_sequence, dim=0)[0]
+                residual_sequence = (
+                    residual_sequence - torch.median(residual_sequence, dim=0)[0]
+                )
 
             # Derotate frames
             rotated_frames = rotation_model(
                 residual_sequence.unsqueeze(1).float(),
-                parang_idx=torch.arange(len(residual_sequence), device=device)
+                parang_idx=torch.arange(len(residual_sequence), device=device),
             ).squeeze(1)
             del residual_sequence
 
@@ -1214,7 +1200,7 @@ def pca_psf_subtraction_gpu(
                 residual_final = torch.median(rotated_frames, dim=0)[0].cpu().numpy()
             else:
                 raise ValueError(f"Invalid combine method: {combine}")
-            
+
             pca_residuals.append(residual_final)
             del rotated_frames, residual_final
 
@@ -1233,58 +1219,60 @@ def pca_psf_subtraction_gpu(
         return np.array(pca_residuals)
 
 
-def plot_contrast_grid(
-    contrast_grid_axis,
-    colorbar_axis,
-    contrast_grid):
+def plot_contrast_grid(contrast_grid_axis, colorbar_axis, contrast_grid):
 
     c_bar_kargs = dict(
-        orientation = "vertical",
-        label = r"Confidence [$\sigma_{\mathcal{N}}$]")
+        orientation="vertical", label=r"Confidence [$\sigma_{\mathcal{N}}$]"
+    )
 
     heat = sns.heatmap(
         contrast_grid,
-        vmax=2, vmin=7,
+        vmax=2,
+        vmin=7,
         annot=True,
         cmap="YlGnBu",
         ax=contrast_grid_axis,
         cbar_ax=colorbar_axis,
-        cbar_kws=c_bar_kargs)
+        cbar_kws=c_bar_kargs,
+    )
 
-    ylabels = ['{:.1f}'.format(float(x.get_text()))
-               for x in heat.get_yticklabels()]
-    _=heat.set_yticklabels(ylabels)
-    xlabels = ['{:.1f}'.format(float(x.get_text()))
-               for x in heat.get_xticklabels()]
-    _=heat.set_xticklabels(xlabels)
+    ylabels = ["{:.1f}".format(float(x.get_text())) for x in heat.get_yticklabels()]
+    _ = heat.set_yticklabels(ylabels)
+    xlabels = ["{:.1f}".format(float(x.get_text())) for x in heat.get_xticklabels()]
+    _ = heat.set_xticklabels(xlabels)
 
 
 def plot_contrast_curves2(
-    contrast_curves, 
+    contrast_curves,
     lim_mag_y,
-    contrast_errors = None, 
-    lim_x = None, 
-    title = None,
-    cmap = "magma",
-    alpha = 0.7,
-    ):
+    contrast_errors=None,
+    lim_x=None,
+    title=None,
+    cmap="magma",
+    alpha=0.7,
+):
 
     # compute the overall best contrast curve
-    PADI_values = contrast_curves.loc[:, ~contrast_curves.columns.str.contains("cADI", regex=True)]
+    PADI_values = contrast_curves.loc[
+        :, ~contrast_curves.columns.str.contains("cADI", regex=True)
+    ]
     overall_best = np.min(PADI_values.values, axis=1)
 
     # get the error bars of the the overall best contrast curve
     best_idx = np.argmin(PADI_values.values, axis=1)
 
     # Find one color for each number of PCA components used
-    color_map = plt.cm.get_cmap(cmap)   # seaborn-style colormap available in mpl
-    colors = [color_map(int(i)) for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))]
+    color_map = plt.cm.get_cmap(cmap)  # seaborn-style colormap available in mpl
+    colors = [
+        color_map(int(i))
+        for i in np.round(np.linspace(0, 220, len(PADI_values.columns)))
+    ]
 
     if isinstance(contrast_curves.index, pd.MultiIndex):
         separations_arcsec = contrast_curves.index.get_level_values(0)
         separations_FWHM = contrast_curves.index.get_level_values(1)
 
-        x = separations_FWHM        # bottom axis
+        x = separations_FWHM  # bottom axis
         x_top = separations_arcsec  # top axis
         multi_index = True
     else:
@@ -1296,59 +1284,51 @@ def plot_contrast_curves2(
     gs0 = fig.add_gridspec(1, 1)
     axis_contrast_curves = fig.add_subplot(gs0[0, 0])
 
-
     # ---------------------- Create the Plot --------------------
-    i = 0 # color picker
+    i = 0  # color picker
     for tmp_model in contrast_curves.columns:
-        
-        if 'cADI'.lower() in tmp_model.lower():
-            num_components = 'cADI'
-            color = 'red'
+
+        if "cADI".lower() in tmp_model.lower():
+            num_components = "cADI"
+            color = "red"
         else:
             num_components = int(tmp_model[5:8])
             color = colors[i]
-            i+=1
-        tmp_flux_ratios = contrast_curves.reset_index(
-            level=0)[tmp_model].values
-
+            i += 1
+        tmp_flux_ratios = contrast_curves.reset_index(level=0)[tmp_model].values
 
         axis_contrast_curves.plot(
-            x,
-            tmp_flux_ratios,
-            color = color,
-            alpha = alpha,
-            label=num_components)
+            x, tmp_flux_ratios, color=color, alpha=alpha, label=num_components
+        )
 
         if contrast_errors is not None:
-            tmp_errors = contrast_errors.reset_index(
-                level=0)[tmp_model].values
-            
+            tmp_errors = contrast_errors.reset_index(level=0)[tmp_model].values
+
             axis_contrast_curves.fill_between(
                 x,
                 tmp_flux_ratios + tmp_errors,
                 tmp_flux_ratios - tmp_errors,
-                color = color,
-                alpha=alpha/2)
-            
-            best_contrast_errors = contrast_errors.values[np.arange(len(best_idx)), best_idx]
+                color=color,
+                alpha=alpha / 2,
+            )
+
+            best_contrast_errors = contrast_errors.values[
+                np.arange(len(best_idx)), best_idx
+            ]
 
             axis_contrast_curves.fill_between(
                 x,
                 overall_best + best_contrast_errors,
                 overall_best - best_contrast_errors,
-                color = 'blue',
-                alpha=alpha/2)
+                color="blue",
+                alpha=alpha / 2,
+            )
 
     axis_contrast_curves.set_yscale("log")
     # ------------ Plot the overall best -------------------------
     axis_contrast_curves.plot(
-        x,
-        overall_best,
-        color = "blue",
-        lw=3,
-        ls="--",
-        label="Best")
-
+        x, overall_best, color="blue", lw=3, ls="--", label="Best"
+    )
 
     # ------------- Double axis and limits -----------------------
     if lim_x:
@@ -1356,30 +1336,22 @@ def plot_contrast_curves2(
     else:
         lim_x = (np.min(x) - 0.01, np.max(x) + 0.01)
 
-
     axis_contrast_curves_mag = axis_contrast_curves.twinx()
-    axis_contrast_curves_mag.plot(
-        x,
-        flux_ratio2mag(tmp_flux_ratios),
-        alpha=0.)
+    axis_contrast_curves_mag.plot(x, flux_ratio2mag(tmp_flux_ratios), alpha=0.0)
     axis_contrast_curves_mag.invert_yaxis()
 
-
-    axis_contrast_curves.grid(which='both')
+    axis_contrast_curves.grid(which="both")
     axis_contrast_curves_mag.set_ylim(*lim_mag_y)
     axis_contrast_curves.set_ylim(
-        (mag2flux_ratio(lim_mag_y[0])),
-        (mag2flux_ratio(lim_mag_y[1])))
+        (mag2flux_ratio(lim_mag_y[0])), (mag2flux_ratio(lim_mag_y[1]))
+    )
 
     axis_contrast_curves.set_xlim(*lim_x)
     axis_contrast_curves_mag.set_xlim(*lim_x)
 
-
     if multi_index:
         fwhm_to_arcsec = interpolate.interp1d(
-            separations_FWHM,
-            separations_arcsec,
-            fill_value="extrapolate"
+            separations_FWHM, separations_arcsec, fill_value="extrapolate"
         )
 
         axis_contrast_curves_arcsec = axis_contrast_curves.twiny()
@@ -1389,41 +1361,28 @@ def plot_contrast_curves2(
             alpha=0,
         )
 
-        axis_contrast_curves_arcsec.set_xlim(
-            *fwhm_to_arcsec(lim_x)
-        )
-    # ----------- Labels and fontsizes --------------------------
-    
-        axis_contrast_curves_arcsec.set_xlabel(
-            "Separation [arcsec]", size=16
-        )
+        axis_contrast_curves_arcsec.set_xlim(*fwhm_to_arcsec(lim_x))
+        # ----------- Labels and fontsizes --------------------------
+
+        axis_contrast_curves_arcsec.set_xlabel("Separation [arcsec]", size=16)
         axis_contrast_curves_arcsec.tick_params(
-            axis='both', which='major', labelsize=14)
-    
-        axis_contrast_curves.set_xlabel(
-            "Separation [FWHM]", size=16
+            axis="both", which="major", labelsize=14
         )
+
+        axis_contrast_curves.set_xlabel("Separation [FWHM]", size=16)
     else:
-        axis_contrast_curves.set_xlabel(
-            "Separation [FWHM]", size=16
-        )
+        axis_contrast_curves.set_xlabel("Separation [FWHM]", size=16)
 
-    axis_contrast_curves.set_ylabel(
-        r"Planet-to-star flux ratio", size=16)
-    axis_contrast_curves_mag.set_ylabel(
-        r"$\Delta$ Magnitude", size=16)
+    axis_contrast_curves.set_ylabel(r"Planet-to-star flux ratio", size=16)
+    axis_contrast_curves_mag.set_ylabel(r"$\Delta$ Magnitude", size=16)
 
-    axis_contrast_curves.tick_params(
-        axis='both', which='major', labelsize=14)
+    axis_contrast_curves.tick_params(axis="both", which="major", labelsize=14)
 
-    axis_contrast_curves_mag.tick_params(
-        axis='both', which='major', labelsize=14)
+    axis_contrast_curves_mag.tick_params(axis="both", which="major", labelsize=14)
 
     # axis_contrast_curves_mag.set_title(
     #     r"$5 \sigma_{\mathcal{N}}$ Contrast Curves",
     #     fontsize=18, fontweight="bold", y=1.1)
-
-
 
     # sep_lambda_arcse = interpolate.interp1d(
     #     x,
@@ -1478,50 +1437,48 @@ def plot_contrast_curves2(
         set_title = title
     else:
         set_title = r"$5 \sigma_{\mathcal{N}}$ Contrast Curves"
-    axis_contrast_curves_mag.set_title(
-        set_title,
-        fontsize=18, fontweight="bold", y=1.1)
+    axis_contrast_curves_mag.set_title(set_title, fontsize=18, fontweight="bold", y=1.1)
 
     # --------------------------- Legend -----------------------
-    handles, labels = axis_contrast_curves.\
-        get_legend_handles_labels()
+    handles, labels = axis_contrast_curves.get_legend_handles_labels()
 
-    leg1 = fig.legend(handles, labels,
-                    bbox_to_anchor=(0.12, -0.1),
-                    fontsize=14,
-                    title="# PCA components",
-                    loc='lower left', ncol=8)
+    leg1 = fig.legend(
+        handles,
+        labels,
+        bbox_to_anchor=(0.12, -0.1),
+        fontsize=14,
+        title="# PCA components",
+        loc="lower left",
+        ncol=8,
+    )
 
-    _=plt.setp(leg1.get_title(),fontsize=14)
+    _ = plt.setp(leg1.get_title(), fontsize=14)
+
 
 def plot_contrast_grid(
-    contrast_grid_axis,
-    colorbar_axis,
-    contrast_grid,
-    cmap = "YlGnBu",
-    vmax=2, 
-    vmin=7):
+    contrast_grid_axis, colorbar_axis, contrast_grid, cmap="YlGnBu", vmax=2, vmin=7
+):
 
     c_bar_kargs = dict(
-        orientation = "vertical",
-        label = r"Confidence [$\sigma_{\mathcal{N}}$]")
+        orientation="vertical", label=r"Confidence [$\sigma_{\mathcal{N}}$]"
+    )
 
     heat = sns.heatmap(
         contrast_grid,
-        vmax=vmax, vmin=vmin,
+        vmax=vmax,
+        vmin=vmin,
         annot=True,
-        fmt = '.1f',
-        cmap= cmap,
+        fmt=".1f",
+        cmap=cmap,
         ax=contrast_grid_axis,
         cbar_ax=colorbar_axis,
-        cbar_kws=c_bar_kargs)
+        cbar_kws=c_bar_kargs,
+    )
 
-    ylabels = ['{:.1f}'.format(float(x.get_text()))
-               for x in heat.get_yticklabels()]
-    _=heat.set_yticklabels(ylabels)
-    xlabels = ['{:.1f}'.format(float(x.get_text()))
-               for x in heat.get_xticklabels()]
-    _=heat.set_xticklabels(xlabels)
+    ylabels = ["{:.1f}".format(float(x.get_text())) for x in heat.get_yticklabels()]
+    _ = heat.set_yticklabels(ylabels)
+    xlabels = ["{:.1f}".format(float(x.get_text())) for x in heat.get_xticklabels()]
+    _ = heat.set_xticklabels(xlabels)
 
 
 def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_name):
@@ -1532,15 +1489,11 @@ def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_
 
     gs0 = fig.add_gridspec(1, 1)
     gs1 = gridspec.GridSpecFromSubplotSpec(
-        1, 2,
-        subplot_spec=gs0[0],
-        wspace=0.05,
-        width_ratios=[1, 0.03]
+        1, 2, subplot_spec=gs0[0], wspace=0.05, width_ratios=[1, 0.03]
     )
 
     contrast_ax = fig.add_subplot(gs1[0])
     colorbar_ax = fig.add_subplot(gs1[1])
-
 
     def update(i):
         contrast_ax.clear()
@@ -1560,7 +1513,7 @@ def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_
             contrast_grid_axis=contrast_ax,
             colorbar_axis=colorbar_ax,
             contrast_grid=grid,
-            cmap = 'YlOrRd' if algo_name == 'CADI' else "YlGnBu"
+            cmap="YlOrRd" if algo_name == "CADI" else "YlGnBu",
         )
 
         contrast_ax.set_ylabel("Contrast - $c=f_p/f_*$ [mag]", fontsize=14)
@@ -1569,18 +1522,16 @@ def _save_grid_animation(contrast_grids, curves_output_path, dataset_name, algo_
         contrast_ax.set_title(
             f"{dataset_name.replace("_", " ")}: {key.replace("_", " ")}",
             fontsize=16,
-            fontweight="bold"
+            fontweight="bold",
         )
 
         contrast_ax.tick_params(labelsize=12)
         plt.subplots_adjust(bottom=0.2)
         plt.close()
 
-    ani = FuncAnimation(
-        fig,
-        update,
-        frames=len(keys),
-        interval=500
-    )
+    ani = FuncAnimation(fig, update, frames=len(keys), interval=500)
 
-    ani.save(f"{(curves_output_path)}/GRID_{dataset_name}_{algo_name}.gif", writer=PillowWriter(fps=1))
+    ani.save(
+        f"{(curves_output_path)}/GRID_{dataset_name}_{algo_name}.gif",
+        writer=PillowWriter(fps=1),
+    )

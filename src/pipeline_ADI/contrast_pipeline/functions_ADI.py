@@ -1,4 +1,3 @@
-
 import numpy as np
 from pathlib import Path
 import warnings
@@ -11,7 +10,7 @@ from typing import Tuple, Callable, Optional
 from typing import List, Dict, Union
 import pandas as pd
 
-#images
+# images
 import torch
 import imageio.v2 as imageio
 from astropy.io import fits
@@ -19,15 +18,24 @@ from astropy.visualization import LogStretch, ImageNormalize, AsinhStretch
 from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
 import matplotlib.gridspec as gridspec
-import seaborn as sns
 
-#scientific libraries
+
+# scientific libraries
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
-from applefy.statistics import TTest, gaussian_sigma_2_fpf, fpf_2_gaussian_sigma, LaplaceBootstrapTest
-from fours.detection_limits.applefy_wrapper import CADIDataReductionGPU #, PCADataReductionGPU
+from applefy.statistics import (
+    TTest,
+    gaussian_sigma_2_fpf,
+    fpf_2_gaussian_sigma,
+    LaplaceBootstrapTest,
+)
+from fours.detection_limits.applefy_wrapper import (
+    CADIDataReductionGPU,
+)  # , PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
+from .raw_contrast import RawContrastReductionGPU
 from .plotting import *
+from utils.statistics import calculate_fwhm
 from applefy.detections.contrast import Contrast
 from applefy_extensions.contrast_curves import ContrastFast
 from skimage.registration import phase_cross_correlation
@@ -35,144 +43,27 @@ from scipy.ndimage import center_of_mass
 from PyAstronomy import pyasl
 
 
-def radial_profile_pre(image, binsize=1):
-    ny, nx = image.shape
-    cy, cx = (ny - 1) / 2, (nx - 1) / 2
-
-    y, x = np.indices(image.shape)
-    r = np.sqrt((x - cx)**2 + (y - cy)**2)
-
-    rbin = np.floor(r / binsize).astype(int)
-
-    maxbin = rbin.max() + 1
-
-    profile = np.empty(maxbin)
-    std = np.empty(maxbin)
-    radius = np.arange(maxbin) * binsize
-
-    for i in range(maxbin):
-        mask = rbin == i
-        values = image[mask]
-
-        profile[i] = values.mean()
-        std[i] = values.std()
-
-    return radius, profile, std
-
-
-
-def estimate_center(stack, nframes=1000, upsample_factor=100,
-                    max_iter=100, tol=1e-3):
-    """
-    Estimate the center of a stack from the median of the first nframes
-    using iterative 180° rotational phase cross-correlation.
-
-    Returns
-    -------
-    yc, xc : float
-        Subpixel center coordinates.
-    """
-
-    ref = np.median(stack[:nframes], axis=0)
-
-    ny, nx = ref.shape
-    yc = (ny - 1) / 2
-    xc = (nx - 1) / 2
-
-    for _ in range(max_iter):
-
-        half = int(min(
-            yc,
-            xc,
-            ny - 1 - yc,
-            nx - 1 - xc
-        ))
-
-        y = int(round(yc))
-        x = int(round(xc))
-
-        sub = ref[y-half:y+half+1,
-                  x-half:x+half+1]
-
-        rot = np.rot90(sub, 2)
-
-        shift, _, _ = phase_cross_correlation(
-            sub,
-            rot,
-            upsample_factor=upsample_factor
-        )
-
-        dy, dx = shift / 2
-
-        yc += dy
-        xc += dx
-
-        if np.hypot(dy, dx) < tol:
-            print(f"Center converged after {_+1} iterations.")
-            break
-
-    return (yc, xc)
-
-
-def crop_stack(stack, 
-               coords = None,
-               radius = None
-               ):
-    """
-    Crop every frame to the largest odd square centered on (yc, xc).
-    """
-
-    if coords is None:
-        yc, xc = estimate_center(stack)
-    
-    else:
-        yc, xc = coords
-    
-    ny, nx = stack.shape[1:]
-
-    if radius is None:
-        half = int(min(
-            yc,
-            xc,
-            ny - 1 - yc,
-            nx - 1 - xc
-        ))
-    else:
-        half = radius
-        
-    yc = int(round(yc))
-    xc = int(round(xc))
-
-    return stack[
-        :,
-        yc-half:yc+half+1,
-        xc-half:xc+half+1
-    ]
-
-
-def zoom_to_peak(
-        img, 
-        radius,
-        method = 'com'
-        ):
+def zoom_to_peak(img, radius, method="com"):
     """
     Zoom into the peak of the PSF image.
-    method: 
+    method:
     - 'com' for center of mass, https://docs.scipy.org/doc/scipy-1.18.0/reference/generated/scipy.ndimage.center_of_mass.html
     - 'max' for maximum pixel value
     """
-#     if method == 'com':
-#         coords_maxpsf = (np.round(np.array(center_of_mass(img))).astype(int))
-#     if method == 'max':
-#         coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
+    #     if method == 'com':
+    #         coords_maxpsf = (np.round(np.array(center_of_mass(img))).astype(int))
+    #     if method == 'max':
+    #         coords_maxpsf = (np.unravel_index(np.argmax(img, axis=None), img.shape))
 
-#     img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
-#     return img
+    #     img = img[coords_maxpsf[0]-radius:coords_maxpsf[0]+radius+1, coords_maxpsf[1]-radius:coords_maxpsf[1]+radius+1]
+    #     return img
 
     if img.ndim == 2:
         ref = img
     elif img.ndim == 3:
-        ref = np.median(img[:10], axis=0) # bcs already centred, not np.median(img, axis=0)   # or np.mean(img, axis=0)
+        ref = np.median(
+            img[:10], axis=0
+        )  # bcs already centred, not np.median(img, axis=0)   # or np.mean(img, axis=0)
     else:
         raise ValueError("img stack must be 2D or 3D")
 
@@ -192,37 +83,6 @@ def zoom_to_peak(
     return img
 
 
-def calculate_fwhm(
-        psf):
-    y, x = np.mgrid[:psf.shape[0], :psf.shape[1]]
-
-    # Initial Gaussian guess
-    g_init = models.Gaussian2D(
-        amplitude=psf.max(),
-        x_mean=psf.shape[1] / 2,
-        y_mean=psf.shape[0] / 2,
-        x_stddev=3,
-        y_stddev=3
-    )
-
-    # Fit
-    fit_p = fitting.LevMarLSQFitter()
-    g_fit = fit_p(g_init, x, y, psf)
-
-    # Convert sigma -> FWHM
-    fwhm_x = 2.355 * g_fit.x_stddev.value
-    fwhm_y = 2.355 * g_fit.y_stddev.value
-
-    print(f"FWHM_x = {fwhm_x:.2f} pix")
-    print(f"FWHM_y = {fwhm_y:.2f} pix")
-
-    # Often people use the mean:
-    fwhm = 0.5 * (fwhm_x + fwhm_y)
-
-    print(f"Mean FWHM = {fwhm:.2f} pix \n")
-    return fwhm
-    
-
 def fake_planet_experiment(
     contrast_instance,
     output_path: Path,
@@ -231,11 +91,11 @@ def fake_planet_experiment(
     separations: np.ndarray,
     algo_name: str,
     angles: np.ndarray,
-    #grid: bool
+    # grid: bool
 ) -> object:
     """
     Run fake planet injection experiment with config-driven parameters.
-    
+
     Parameters
     ----------
     contrast_instance : Contrast
@@ -284,7 +144,6 @@ def fake_planet_experiment(
     #     checkpoint_dir= output_path
     # )
 
-
     # contrast_instance.design_fake_planet_experiments(
     #     flux_ratios= flux_ratio,
     #     num_planets=fp_config['num_fake_planets'],
@@ -294,53 +153,54 @@ def fake_planet_experiment(
 
     # num_parallel = cpu_count()//2
 
-    if algo_name == 'PCAD':
+    if algo_name == "PCAD":
 
         work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
 
-
         algorithm_function = PCADataReductionGPU(
-            pca_numbers=fp_config['components'],
-            device=fp_config['device'],
-            pca_method=fp_config['pca_method'],
-            niter=fp_config['niter'],
-            random_state=fp_config['random_state'],
-            eps=fp_config['eps'],
-            work_dir = work_dir,
-            approx_svd_trunc=fp_config['approx_svd_trunc'],
-            subsample_rotation_grid=fp_config['subsample_rotation_grid'],
-            combine=fp_config['combine'],
+            pca_numbers=fp_config["components"],
+            device=fp_config["device"],
+            pca_method=fp_config["pca_method"],
+            niter=fp_config["niter"],
+            random_state=fp_config["random_state"],
+            eps=fp_config["eps"],
+            work_dir=work_dir,
+            approx_svd_trunc=fp_config["approx_svd_trunc"],
+            subsample_rotation_grid=fp_config["subsample_rotation_grid"],
+            combine=fp_config["combine"],
         )
-            
-    if algo_name == 'CADI':
-    
-        algorithm_function = CADIDataReductionGPU(
-            device = fp_config['device']
-        )
-        
+
+    if algo_name == "CADI":
+
+        algorithm_function = CADIDataReductionGPU(device=fp_config["device"])
+
     # try:
     #     contrast_instance.run_fake_planet_experiments(
     #         algorithm_function=algorithm_function,
     #         num_parallel=num_parallel)
     # except:
-        # can fail in multiprocessing, depending on whether optional dependencies are installed or not
-    num_parallel=1
+    # can fail in multiprocessing, depending on whether optional dependencies are installed or not
+
+    if algo_name == "raw_contrast":
+
+        algorithm_function = RawContrastReductionGPU(device=fp_config["device"])
+
+    num_parallel = 1
     contrast_instance.run_fake_planet_experiments(
-        algorithm_function=algorithm_function,
-        num_parallel=num_parallel)
-                
+        algorithm_function=algorithm_function, num_parallel=num_parallel
+    )
 
     return contrast_instance
 
 
 def compute_contrast(
-        contrast_instance, 
-        fwhm, 
-        pixel_scale, 
-        grid,
-        photometry = 'FS', 
-        test = 't-test',
-        ):
+    contrast_instance,
+    fwhm,
+    pixel_scale,
+    grid,
+    photometry="FS",
+    test="t-test",
+):
     """
     Compute analytic contrast curves for a processed high-contrast imaging
     dataset using the Appleby tutorial workflow.
@@ -385,7 +245,7 @@ def compute_contrast(
             Contrast grids (one for each number of PCA components)
         contrast_grids : pandas DataFrame
             Contrast curves obtained by thresholding the contrast grids.
-    
+
     Warns
     -----
     UserWarning
@@ -393,57 +253,64 @@ def compute_contrast(
         provided.
     """
 
-    if photometry == 'FS':# Use spaced pixel values
+    if photometry == "FS":  # Use spaced pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "F", # or "P"
-            psf_fwhm_radius=fwhm/2,
-            search_area=0.5)
-        photometry_mode_noise = AperturePhotometryMode(
-            "P",
-            psf_fwhm_radius=fwhm/2)    
-    elif photometry == 'AS': # Use apertures pixel values
+            "F", psf_fwhm_radius=fwhm / 2, search_area=0.5  # or "P"
+        )
+        photometry_mode_noise = AperturePhotometryMode("P", psf_fwhm_radius=fwhm / 2)
+    elif photometry == "AS":  # Use apertures pixel values
         photometry_mode_planet = AperturePhotometryMode(
-            "ASS", # or "AS"
-            psf_fwhm_radius=fwhm/2,
-            search_area=0.5)
+            "ASS", psf_fwhm_radius=fwhm / 2, search_area=0.5  # or "AS"
+        )
 
-        photometry_mode_noise = AperturePhotometryMode(
-            "AS",
-            psf_fwhm_radius=fwhm/2)
+        photometry_mode_noise = AperturePhotometryMode("AS", psf_fwhm_radius=fwhm / 2)
     else:
         # Issue a warning
-        warnings.warn("Photometry style not recognized, 'FS' for spaced pixel values and 'AS' for aperture sums.", UserWarning)
+        warnings.warn(
+            "Photometry style not recognized, 'FS' for spaced pixel values and 'AS' for aperture sums.",
+            UserWarning,
+        )
 
     contrast_instance.prepare_contrast_results(
         photometry_mode_planet=photometry_mode_planet,
-        photometry_mode_noise=photometry_mode_noise)
-    
-    if test == 't-test':
+        photometry_mode_noise=photometry_mode_noise,
+    )
+
+    if test == "t-test":
         statistical_test = TTest()
-    elif test == 'bootstrap':
-        #The Parametric Bootstrap test as discussed in (Bonse et al. 2023) (assumes Laplacian residual noise). You can download the lookup from Zenodo.
-        statistical_test = LaplaceBootstrapTest.construct_from_json_file("file/to/lookup_table")
+    elif test == "bootstrap":
+        # The Parametric Bootstrap test as discussed in (Bonse et al. 2023) (assumes Laplacian residual noise). You can download the lookup from Zenodo.
+        statistical_test = LaplaceBootstrapTest.construct_from_json_file(
+            "file/to/lookup_table"
+        )
     else:
         # Issue a warning
-        warnings.warn("Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).", UserWarning)
+        warnings.warn(
+            "Statistical testing style not recognized, 't-test' assumes gaussian residual noise, and 'bootstrap' assumes Laplacian residual noise (you can download the lookup from Zenodo).",
+            UserWarning,
+        )
 
-    if grid ==False:
-        contrast_curves, contrast_errors = contrast_instance.compute_analytic_contrast_curves(
-            statistical_test=statistical_test,
-            confidence_level_fpf=gaussian_sigma_2_fpf(5),
-            num_rot_iter=20,
-            pixel_scale= pixel_scale)
+    if grid == False:
+        contrast_curves, contrast_errors = (
+            contrast_instance.compute_analytic_contrast_curves(
+                statistical_test=statistical_test,
+                confidence_level_fpf=gaussian_sigma_2_fpf(5),
+                num_rot_iter=20,
+                pixel_scale=pixel_scale,
+            )
+        )
 
         return contrast_curves, contrast_errors
-    
+
     if grid == True:
         contrast_curves_grid, contrast_grids = contrast_instance.compute_contrast_grids(
             statistical_test=statistical_test,
             confidence_level_fpf=gaussian_sigma_2_fpf(5),
             num_rot_iter=10,
             safety_margin=2.5,
-            num_cores=10, 
-            pixel_scale= pixel_scale)
+            num_cores=10,
+            pixel_scale=pixel_scale,
+        )
 
         return contrast_curves_grid, contrast_grids
 
@@ -464,3 +331,117 @@ def parallactic_angles():
 
     # Parallactic angle
     pa = pyasl.parallacticAngle(ha, lat, dec)
+
+
+# def radial_profile_pre(image, binsize=1):
+#     ny, nx = image.shape
+#     cy, cx = (ny - 1) / 2, (nx - 1) / 2
+
+#     y, x = np.indices(image.shape)
+#     r = np.sqrt((x - cx)**2 + (y - cy)**2)
+
+#     rbin = np.floor(r / binsize).astype(int)
+
+#     maxbin = rbin.max() + 1
+
+#     profile = np.empty(maxbin)
+#     std = np.empty(maxbin)
+#     radius = np.arange(maxbin) * binsize
+
+#     for i in range(maxbin):
+#         mask = rbin == i
+#         values = image[mask]
+
+#         profile[i] = values.mean()
+#         std[i] = values.std()
+
+#     return radius, profile, std
+
+
+# def estimate_center(stack, nframes=1000, upsample_factor=100,
+#                     max_iter=100, tol=1e-3):
+#     """
+#     Estimate the center of a stack from the median of the first nframes
+#     using iterative 180° rotational phase cross-correlation.
+
+#     Returns
+#     -------
+#     yc, xc : float
+#         Subpixel center coordinates.
+#     """
+
+#     ref = np.median(stack[:nframes], axis=0)
+
+#     ny, nx = ref.shape
+#     yc = (ny - 1) / 2
+#     xc = (nx - 1) / 2
+
+#     for _ in range(max_iter):
+
+#         half = int(min(
+#             yc,
+#             xc,
+#             ny - 1 - yc,
+#             nx - 1 - xc
+#         ))
+
+#         y = int(round(yc))
+#         x = int(round(xc))
+
+#         sub = ref[y-half:y+half+1,
+#                   x-half:x+half+1]
+
+#         rot = np.rot90(sub, 2)
+
+#         shift, _, _ = phase_cross_correlation(
+#             sub,
+#             rot,
+#             upsample_factor=upsample_factor
+#         )
+
+#         dy, dx = shift / 2
+
+#         yc += dy
+#         xc += dx
+
+#         if np.hypot(dy, dx) < tol:
+#             print(f"Center converged after {_+1} iterations.")
+#             break
+
+#     return (yc, xc)
+
+
+# def crop_stack(stack,
+#                coords = None,
+#                radius = None
+#                ):
+#     """
+#     Crop every frame to the largest odd square centered on (yc, xc).
+#     """
+
+#     if coords is None:
+#         yc, xc = estimate_center(stack)
+
+#     else:
+#         yc, xc = coords
+
+#     ny, nx = stack.shape[1:]
+
+#     if radius is None:
+#         half = int(min(
+#             yc,
+#             xc,
+#             ny - 1 - yc,
+#             nx - 1 - xc
+#         ))
+#     else:
+#         half = radius
+
+#     yc = int(round(yc))
+#     xc = int(round(xc))
+
+#     return stack[
+#         :,
+#         yc-half:yc+half+1,
+#         xc-half:xc+half+1
+#     ]

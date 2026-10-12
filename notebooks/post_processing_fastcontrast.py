@@ -1,6 +1,7 @@
 # from astropy.modeling import models, fitting
 import importlib
 import utils.functions as func
+
 importlib.reload(func)
 from utils.functions import *
 
@@ -17,7 +18,6 @@ print(root_dir)
 from applefy_extensions.contrast_curves import ContrastFast
 from applefy.utils import mag2flux_ratio
 from applefy.utils.positions import center_subpixel
-
 
 frame_rate = 1 / 400  # s
 dit_science = 4e-3  # s
@@ -44,10 +44,14 @@ psf_int = np.load("/home/aosimul/noah/data/ghost_images/4ms/psf_int.npy")
 # psf_pred       = psf_pred[radius_psf:-radius_psf, radius_psf:-radius_psf]
 # psf_int        = psf_int[radius_psf:-radius_psf, radius_psf:-radius_psf]
 
-binning        = 25
-sc_img_int     = sc_img_int.reshape(int(sc_img_int.shape[0]/binning), binning, *sc_img_int.shape[1:]).sum(axis=1)
-sc_img_pred    = sc_img_pred.reshape(int(sc_img_pred.shape[0]/binning), binning, *sc_img_pred.shape[1:]).sum(axis=1)
-dit_science    = dit_science*binning
+binning = 25
+sc_img_int = sc_img_int.reshape(
+    int(sc_img_int.shape[0] / binning), binning, *sc_img_int.shape[1:]
+).sum(axis=1)
+sc_img_pred = sc_img_pred.reshape(
+    int(sc_img_pred.shape[0] / binning), binning, *sc_img_pred.shape[1:]
+).sum(axis=1)
+dit_science = dit_science * binning
 
 # CREATE DATASETS
 datasets = {
@@ -97,7 +101,7 @@ device = "cpu"  #'cpu'
 for dataset_name, dataset in datasets.items():
 
     if grid == True:
-        path = f"{contrast_result_dir}/{name}_{dataset_name}" #_{algo_name}"
+        path = f"{contrast_result_dir}/{name}_{dataset_name}"  # _{algo_name}"
     else:
         path = f"/home/aosimul/noah/results/contrast_curves/{name}_{dataset_name}_{algo_name}"
 

@@ -14,7 +14,7 @@
 
 experiment:
   name: "test"                        # Default experiment name
-
+#  ori_folder: "path/to/files/"
 
 algorithms:                
   CADI: true                          # Classical ADI
@@ -22,10 +22,15 @@ algorithms:
 
 
 instrument:
+  dit_science: 1                      # Science DIT. Units: seconds
+  dit_psf: 1                          # PSF DIT. Units: seconds
+  science_frames: null                # If you want to truncate the science sequence to an amount of images
+  psf_factor: null                    # To multiply a master PSF to reach the expected peak value (reverse normalisation)
   radius_psf: 20                      # Radius used when centering/extracting the PSF. Units: pixels
   radius_sc: null                     # Radius used when centering/extracting the science image. Units: pixels
   dit_factor: null                    # science DIT multiplication factor. If null, the pipeline will use the images without increasing the DIT.    
   pixel_size: null                    # Pixel scale. Units: arcsec/pixel
+  fwhm: null                          # Full width half maximum. Units: pixels
 
 fake_planet:
   path: "results/fake_planets"        # Root directory for checkpoints.
@@ -63,8 +68,10 @@ contrast:
   photometry: "FS"                    # Aperture photometry mode. Allowed values depend on implementation.
   test: "t-test"                      # Statistical test used for detection limits. Allowed values: 't-test', 'bootstrap'
   
-  save_best: false                     # Save contrast curves overall best as CSV files.
+  raw_contrasts: "raw_contrast.h5"    # Raw contrast curve file name (must be in the origin folder). 
+  save_best: false                    # Save contrast curves overall best as CSV files.
 
+  range_constrast_y: [14, 4]
             
 
 

@@ -1,0 +1,218 @@
+{
+    "int_10ro_10ws_1": {
+        "psf": 42535.8359375,
+        "psf_photometry": 1055040.3061523438,
+        "satellite_photometry": 456028.5378417969,
+        "satellite": 10979.0
+    },
+    "int_10ro_10ws_2": {
+        "psf": 42535.8359375,
+        "psf_photometry": 1055040.3061523438,
+        "satellite_photometry": 423769.775390625,
+        "satellite": 10886.0
+    },
+    "int_10ro_15ws_1": {
+        "psf": 40960.8359375,
+        "psf_photometry": 1011606.0494384766,
+        "satellite_photometry": 407321.59375,
+        "satellite": 10635.0
+    },
+    "int_10ro_15ws_2": {
+        "psf": 40960.8359375,
+        "psf_photometry": 1011606.0494384766,
+        "satellite_photometry": 423855.109375,
+        "satellite": 10793.0
+    },
+    "int_10ro_20ws_1": {
+        "psf": 38457.7421875,
+        "psf_photometry": 954472.5952148438,
+        "satellite_photometry": 402471.3664550781,
+        "satellite": 9381.0
+    },
+    "int_10ro_20ws_2": {
+        "psf": 38457.7421875,
+        "psf_photometry": 954472.5952148438,
+        "satellite_photometry": 367858.3310546875,
+        "satellite": 9757.0
+    },
+    "int_5ro_10ws_1": {
+        "psf": 53331.23046875,
+        "psf_photometry": 1385466.3022460938,
+        "satellite_photometry": 378246.4162597656,
+        "satellite": 12538.0
+    },
+    "int_5ro_10ws_2": {
+        "psf": 53331.23046875,
+        "psf_photometry": 1385466.3022460938,
+        "satellite_photometry": 376239.7637939453,
+        "satellite": 12413.0
+    },
+    "int_5ro_15ws_1": {
+        "psf": 53423.02734375,
+        "psf_photometry": 1378060.8134765625,
+        "satellite_photometry": 378623.1142578125,
+        "satellite": 12761.0
+    },
+    "int_5ro_15ws_2": {
+        "psf": 53423.02734375,
+        "psf_photometry": 1378060.8134765625,
+        "satellite_photometry": 378671.7634277344,
+        "satellite": 12798.671875
+    },
+    "int_5ro_20ws_1": {
+        "psf": 53115.35546875,
+        "psf_photometry": 1361958.4548339844,
+        "satellite_photometry": 363451.0354003906,
+        "satellite": 12279.421875
+    },
+    "int_5ro_20ws_2": {
+        "psf": 53115.35546875,
+        "psf_photometry": 1361958.4548339844,
+        "satellite_photometry": 376664.27099609375,
+        "satellite": 13047.0
+    },
+    "int_7ro_10ws_1": {
+        "psf": 50606.9296875,
+        "psf_photometry": 1271299.6284179688,
+        "satellite_photometry": 393859.6887207031,
+        "satellite": 11762.0
+    },
+    "int_7ro_10ws_2": {
+        "psf": 50606.9296875,
+        "psf_photometry": 1271299.6284179688,
+        "satellite_photometry": 404035.02001953125,
+        "satellite": 12013.0
+    },
+    "int_7ro_15ws_1": {
+        "psf": 49933.18359375,
+        "psf_photometry": 1251105.0236816406,
+        "satellite_photometry": 379670.99658203125,
+        "satellite": 11135.0
+    },
+    "int_7ro_15ws_2": {
+        "psf": 49933.18359375,
+        "psf_photometry": 1251105.0236816406,
+        "satellite_photometry": 402746.9697265625,
+        "satellite": 12297.0
+    },
+    "int_7ro_20ws_1": {
+        "psf": 48784.828125,
+        "psf_photometry": 1216453.8798828125,
+        "satellite_photometry": 362404.6591796875,
+        "satellite": 11135.0
+    },
+    "int_7ro_20ws_2": {
+        "psf": 48784.828125,
+        "psf_photometry": 1216453.8798828125,
+        "satellite_photometry": 356916.3171386719,
+        "satellite": 10915.0
+    },
+    "pred_10ro_10ws_1": {
+        "psf": 43420.8203125,
+        "psf_photometry": 1067681.4892578125,
+        "satellite_photometry": 435235.64306640625,
+        "satellite": 11144.0
+    },
+    "pred_10ro_10ws_2": {
+        "psf": 43420.8203125,
+        "psf_photometry": 1067681.4892578125,
+        "satellite_photometry": 431468.66357421875,
+        "satellite": 11035.7451171875
+    },
+    "pred_10ro_15ws_1": {
+        "psf": 41421.76171875,
+        "psf_photometry": 1026874.5855712891,
+        "satellite_photometry": 397691.0791015625,
+        "satellite": 10050.7265625
+    },
+    "pred_10ro_15ws_2": {
+        "psf": 41421.76171875,
+        "psf_photometry": 1026874.5855712891,
+        "satellite_photometry": 439174.1276855469,
+        "satellite": 11114.0
+    },
+    "pred_10ro_20ws_1": {
+        "psf": 39930.328125,
+        "psf_photometry": 980609.0563964844,
+        "satellite_photometry": 404828.5983886719,
+        "satellite": 10642.0
+    },
+    "pred_10ro_20ws_2": {
+        "psf": 39930.328125,
+        "psf_photometry": 980609.0563964844,
+        "satellite_photometry": 401600.3649902344,
+        "satellite": 10422.0
+    },
+    "pred_5ro_10ws_1": {
+        "psf": 53851.16015625,
+        "psf_photometry": 1395190.4155273438,
+        "satellite_photometry": 381616.30419921875,
+        "satellite": 12654.046875
+    },
+    "pred_5ro_10ws_2": {
+        "psf": 53851.16015625,
+        "psf_photometry": 1395190.4155273438,
+        "satellite_photometry": 383421.94384765625,
+        "satellite": 12835.0
+    },
+    "pred_5ro_15ws_1": {
+        "psf": 53716.890625,
+        "psf_photometry": 1385980.0024414062,
+        "satellite_photometry": 385139.7041015625,
+        "satellite": 13089.0
+    },
+    "pred_5ro_15ws_2": {
+        "psf": 53716.890625,
+        "psf_photometry": 1385980.0024414062,
+        "satellite_photometry": 385678.7995605469,
+        "satellite": 13121.0
+    },
+    "pred_5ro_20ws_1": {
+        "psf": 53366.34375,
+        "psf_photometry": 1373013.3767089844,
+        "satellite_photometry": 370125.7893066406,
+        "satellite": 12618.0
+    },
+    "pred_5ro_20ws_2": {
+        "psf": 53366.34375,
+        "psf_photometry": 1373013.3767089844,
+        "satellite_photometry": 373882.23876953125,
+        "satellite": 12857.1904296875
+    },
+    "pred_7ro_10ws_1": {
+        "psf": 50625.40625,
+        "psf_photometry": 1278037.0949707031,
+        "satellite_photometry": 421509.58642578125,
+        "satellite": 12400.0
+    },
+    "pred_7ro_10ws_2": {
+        "psf": 50625.40625,
+        "psf_photometry": 1278037.0949707031,
+        "satellite_photometry": 408437.072265625,
+        "satellite": 12180.0
+    },
+    "pred_7ro_15ws_1": {
+        "psf": 50131.04296875,
+        "psf_photometry": 1260415.2819824219,
+        "satellite_photometry": 410892.1408691406,
+        "satellite": 12651.0
+    },
+    "pred_7ro_15ws_2": {
+        "psf": 50131.04296875,
+        "psf_photometry": 1260415.2819824219,
+        "satellite_photometry": 407442.60888671875,
+        "satellite": 12526.0
+    },
+    "pred_7ro_20ws_1": {
+        "psf": 49468.5703125,
+        "psf_photometry": 1235628.2067871094,
+        "satellite_photometry": 386542.1579589844,
+        "satellite": 12022.0
+    },
+    "pred_7ro_20ws_2": {
+        "psf": 49468.5703125,
+        "psf_photometry": 1235628.2067871094,
+        "satellite_photometry": 384815.3205566406,
+        "satellite": 11928.0
+    }
+}
