@@ -1,0 +1,78 @@
+# Configuration for the ghost-image preprocessing pipeline.
+# Run with:  python run_pipeline.py --config config.yaml
+# Every value can be overridden from the CLI, e.g.:
+#   python run_pipeline.py --set modes.save_outputs=false --set geometry.radius=60
+
+run_name: long_7ro_20ws_focus
+
+paths:
+  # Folder with the raw .tif files and dark frames (darks_img, darks_psf, darks)
+  input_dir: /home/aosimul/noah/data/ghost_images/phase_screens_SLM/10_10/
+  # Processed image stacks (.npy) end up in <data_root>/<run_name>
+  data_root: /home/aosimul/noah/data/ghost_images
+  # Plots, json, h5 results end up in <analysis_root>/<run_name>
+  analysis_root: /home/aosimul/noah/src/pipeline_pre_ADI/results
+
+modes:
+  save_outputs: true          # false = dry run, nothing is written to data_dir
+  start_over: false           # true = DELETE data_dir before running
+  compute_raw_contrast: false # also compute raw contrast profiles + uncorrelated PSF
+
+geometry:
+  radius: 55                  # crop radius in pixels
+  mask_radius: 35             # circular mask used for outlier detection
+
+timing:
+  dit_psf: 29.0e-6            # exposure time of PSF frames [s]
+  dit_img: 2.814e-3           # exposure time of science frames [s]
+
+file_selection:
+  glob: "*.tif"
+  science_contains: coro      # science files contain this ...
+  science_excludes: no_coro   # ... but not this
+  psf_contains: no_coro
+  limit: null                 # process only the first N science images (null = all)
+  # A PSF is processed for every N-th science image (index 0, N, 2N, ...)
+  psf_every_n_images: 2
+
+preprocessing:
+  method: waffle
+  n_satellites: 2
+  science:
+    img_key: null
+    dark_file: darks_img      # relative to input_dir
+    dark_key: 10000
+    normalisation: false
+  psf:
+    img_key: 10000
+    dark_file: darks_psf
+    dark_key: 10000
+    normalisation: false
+  # Only used when modes.compute_raw_contrast is true
+  uncorrelated_psf:
+    img_file: psf_            # prefix, relative to input_dir
+    img_key: 10000
+    dark_file: darks
+    dark_key: 10000
+    normalisation: true
+
+outlier_detection:
+  n_components: 3
+  mad_threshold: 6
+  pca_analysis: true
+  normalisation: false
+
+ 
+# Merge numbered repeats (<name>_1.npy ... <name>_8.npy) into one stack per group
+stacking:
+  enabled: true
+  groups: [[1, 4], [5, 8]]    # inclusive ranges -> <name>_1-4.npy, <name>_5-8.npy
+  skip_prefix: psf_           # PSFs are 2D medians, never stack them
+  delete_originals: true      # delete the numbered files, only after a verified save
+
+  
+outputs:
+  speckle_diversity_subdir: speckle_diversity
+  light_intensities: light_intensities.json
+  outlier_diff: outlier_diff.h5
+  raw_contrast: raw_contrast.h5

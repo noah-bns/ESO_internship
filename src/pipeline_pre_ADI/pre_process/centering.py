@@ -1,5 +1,3 @@
-
-
 import numpy as np
 from pathlib import Path
 import warnings
@@ -10,7 +8,6 @@ import time
 import gc
 import pandas as pd
 from typing import Optional, Tuple, Sequence
-
 
 # scientific libraries
 from sklearn.decomposition import PCA
@@ -31,24 +28,160 @@ import matplotlib as mpl
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+
 mpl.rcParams["hatch.linewidth"] = 0.5  # previous pdf hatch linewidth
 import tifffile as tiff
 from matplotlib.patches import Circle
 from photutils.aperture import CircularAperture
-
+from photutils.aperture import RectangularAnnulus
+from photutils.detection import find_peaks
 
 # import pre_process.statistics as stat
 # importlib.reload(stat)
-from pre_process.statistics import *
+from utils.statistics import *
+
 # import utils.plot_pre_processing as plot
 # importlib.reload(plot)
 # from utils.plot_pre_processing import *
 
 
+def rect_mask(
+    image,
+    w_in=135,
+    w_out=170,
+):
+    """
+    image : 2D ndarray
+        Input image.
+
+    w_in : float
+        Inner rectangle width.
+
+    w_out : float
+        Outer rectangle width.
+    """
+    # --------------------------------------------------
+    # Create rectangular annulus
+    # --------------------------------------------------
+    center = center_subpixel(image)
+
+    aperture = RectangularAnnulus(
+        positions=center,
+        w_in=w_out - 5,
+        w_out=w_out,
+        h_out=w_out,
+        h_in=w_in,
+    )
+
+    # --------------------------------------------------
+    # Create aperture mask
+    # --------------------------------------------------
+
+    mask = aperture.to_mask(method="center")
+
+    aperture_mask = mask.to_image(image.shape[-2:])
+
+    # Pixels outside the rectangular annulus
+    masked_image = image * aperture_mask
+
+    return masked_image
 
 
+def find_satellite_speckles(
+    image,
+    n_satellites=6,
+    min_distance=30,
+):
+    """
+    Find the brightest satellite speckles inside a rectangular annulus.
 
-def centroid_com(image: np.ndarray, mask: Optional[np.ndarray] = None) -> Tuple[float, float]:
+    Parameters
+    ----------
+    masked_image : 2D ndarray
+        Input image.
+
+
+    w_in : float
+        Inner rectangle width.
+
+    w_out : float
+        Outer rectangle width.
+
+    n_satellites : int
+        Number of speckles to return.
+
+    min_distance : int
+        Minimum separation between detected peaks in pixels.
+
+    Returns
+    -------
+    speckles : list of dict
+        Detected speckles sorted by brightness.
+
+    """
+
+    masked_image = rect_mask(image)
+
+    # --------------------------------------------------
+    # Find local maxima
+    # --------------------------------------------------
+
+    peaks = find_peaks(
+        masked_image,
+        threshold=np.nanmin(masked_image),
+        box_size=2 * min_distance + 1,
+        mask=~np.isfinite(masked_image),
+    )
+
+    if peaks is None:
+        return []
+
+    # --------------------------------------------------
+    # Sort by peak brightness
+    # --------------------------------------------------
+
+    peaks.sort("peak_value", reverse=True)
+
+    # --------------------------------------------------
+    # Select brightest separated peaks
+    # --------------------------------------------------
+
+    speckles = []
+
+    for peak in peaks:
+
+        x = float(peak["x_peak"])
+        y = float(peak["y_peak"])
+        brightness = float(peak["peak_value"])
+
+        # Enforce minimum separation
+        too_close = any(
+            np.hypot(x - s["x"], y - s["y"]) < min_distance for s in speckles
+        )
+
+        if too_close:
+            continue
+
+        speckles.append(
+            {
+                "x": x,
+                "y": y,
+                "brightness": brightness,
+            }
+        )
+
+        if len(speckles) >= n_satellites:
+            break
+
+    center_x = np.mean([p["x"] for p in speckles])
+    center_y = np.mean([p["y"] for p in speckles])
+
+    return center_y, center_x, speckles
+
+
+def centroid_com(
+    image: np.ndarray, mask: Optional[np.ndarray] = None
+) -> Tuple[float, float]:
     """
     Simple center-of-mass centroid. Returns (yc, xc) in image coordinates.
     """
@@ -60,23 +193,34 @@ def centroid_com(image: np.ndarray, mask: Optional[np.ndarray] = None) -> Tuple[
     if arr.sum() <= 0:
         # fallback to geometric center if nothing left
         ny, nx = image.shape
-        return ( (ny - 1) / 2.0, (nx - 1) / 2.0 )
+        return ((ny - 1) / 2.0, (nx - 1) / 2.0)
     return nd_center_of_mass(arr)
 
 
 def _rotated_gaussian(coords, amplitude, x0, y0, sigma_x, sigma_y, theta, offset):
     """Rotated 2D Gaussian used by curve_fit (coords is (2, N) meshgrid)."""
-    (x, y) = coords
+    x, y = coords
     xo = float(x0)
     yo = float(y0)
-    a = (np.cos(theta)**2) / (2*sigma_x**2) + (np.sin(theta)**2) / (2*sigma_y**2)
-    b = -(np.sin(2*theta)) / (4*sigma_x**2) + (np.sin(2*theta)) / (4*sigma_y**2)
-    c = (np.sin(theta)**2) / (2*sigma_x**2) + (np.cos(theta)**2) / (2*sigma_y**2)
-    g = offset + amplitude * np.exp( - (a * ((x-xo)**2) + 2*b*(x-xo)*(y-yo) + c * ((y-yo)**2)))
+    a = (np.cos(theta) ** 2) / (2 * sigma_x**2) + (np.sin(theta) ** 2) / (
+        2 * sigma_y**2
+    )
+    b = -(np.sin(2 * theta)) / (4 * sigma_x**2) + (np.sin(2 * theta)) / (4 * sigma_y**2)
+    c = (np.sin(theta) ** 2) / (2 * sigma_x**2) + (np.cos(theta) ** 2) / (
+        2 * sigma_y**2
+    )
+    g = offset + amplitude * np.exp(
+        -(a * ((x - xo) ** 2) + 2 * b * (x - xo) * (y - yo) + c * ((y - yo) ** 2))
+    )
     return g.ravel()
 
-def fit_2d_gaussian(image: np.ndarray, bbox: Optional[Tuple[int,int,int,int]] = None,
-                    p0: Optional[Sequence[float]] = None, maxfev: int = 2000) -> Tuple[float,float, dict]:
+
+def fit_2d_gaussian(
+    image: np.ndarray,
+    bbox: Optional[Tuple[int, int, int, int]] = None,
+    p0: Optional[Sequence[float]] = None,
+    maxfev: int = 2000,
+) -> Tuple[float, float, dict]:
     """
     Fit a rotated 2D Gaussian to `image` (or a bbox). Returns (yc, xc, popt_dict).
 
@@ -100,23 +244,38 @@ def fit_2d_gaussian(image: np.ndarray, bbox: Optional[Tuple[int,int,int,int]] = 
         p0 = [amp0, com_x, com_y, sx0, sy0, 0.0, float(np.median(im))]
 
     try:
-        popt, pcov = curve_fit(_rotated_gaussian, (X, Y), im.ravel(), p0=p0, maxfev=maxfev)
+        popt, pcov = curve_fit(
+            _rotated_gaussian, (X, Y), im.ravel(), p0=p0, maxfev=maxfev
+        )
     except Exception:
         # fallback to center-of-mass if fit fails
         com_y, com_x = centroid_com(im)
-        return (float(com_y + (y0 if bbox is not None else 0)),
-                float(com_x + (x0 if bbox is not None else 0)),
-                {"method":"com_fallback"})
+        return (
+            float(com_y + (y0 if bbox is not None else 0)),
+            float(com_x + (x0 if bbox is not None else 0)),
+            {"method": "com_fallback"},
+        )
 
     amp, x0f, y0f, sx, sy, theta, offset = popt
     yc = float(y0f + (y0 if bbox is not None else 0))
     xc = float(x0f + (x0 if bbox is not None else 0))
-    return yc, xc, {"amplitude":amp, "sigma_x":sx, "sigma_y":sy, "theta":theta, "offset":offset}
+    return (
+        yc,
+        xc,
+        {
+            "amplitude": amp,
+            "sigma_x": sx,
+            "sigma_y": sy,
+            "theta": theta,
+            "offset": offset,
+        },
+    )
+
 
 # -----------------------
 # (C) Coronagraphic mask detection & circle fit
 # -----------------------
-def _algebraic_circle_fit(xs: np.ndarray, ys: np.ndarray) -> Tuple[float,float,float]:
+def _algebraic_circle_fit(xs: np.ndarray, ys: np.ndarray) -> Tuple[float, float, float]:
     """
     Algebraic least-squares circle fit.
     Returns (yc, xc, r)
@@ -130,8 +289,13 @@ def _algebraic_circle_fit(xs: np.ndarray, ys: np.ndarray) -> Tuple[float,float,f
     r = np.sqrt(xc**2 + yc**2 + c0)
     return yc, xc, r
 
-def detect_coron_mask_and_fit_circle(image: np.ndarray, smooth_sigma_annulus: float = 10.0,
-                                     threshold_frac: float = 0.7, max_area: int = 100) -> Tuple[float,float,float,np.ndarray]:
+
+def detect_coron_mask_and_fit_circle(
+    image: np.ndarray,
+    smooth_sigma_annulus: float = 10.0,
+    threshold_frac: float = 0.7,
+    max_area: int = 100,
+) -> Tuple[float, float, float, np.ndarray]:
     """
     Detect a dark circular occulting mask (coronagraph) and fit its center.
 
@@ -150,11 +314,11 @@ def detect_coron_mask_and_fit_circle(image: np.ndarray, smooth_sigma_annulus: fl
     labeled, nl = ndi.label(bw)
     if nl == 0:
         raise RuntimeError("No dark region found for coronagraph mask detection.")
-    sizes = ndi.sum(bw, labeled, range(1, nl+1))
+    sizes = ndi.sum(bw, labeled, range(1, nl + 1))
     if sizes.size == 0:
         raise RuntimeError("No components found.")
     largest_label = np.argmax(sizes) + 1
-    mask = (labeled == largest_label)
+    mask = labeled == largest_label
     # if mask.sum() > max_area:
     #     raise RuntimeError("Detected mask too large / noisy detection.")
 
@@ -171,7 +335,6 @@ def detect_coron_mask_and_fit_circle(image: np.ndarray, smooth_sigma_annulus: fl
     return yc, xc, r, mask
 
 
-
 def estimate_center_correlation(
     stack,
     nframes,
@@ -181,7 +344,6 @@ def estimate_center_correlation(
     ref_psf=None,
     search_radius=7,
 ):
-
     """
     Estimate the center of a stack using iterative 90° rotational
     phase cross-correlation.
@@ -216,7 +378,7 @@ def estimate_center_correlation(
     # Initial center
     # ------------------------------------------------------------------
     if ref_psf is not None:
-        
+
         yc0, xc0 = np.unravel_index(np.argmax(ref_psf), ref_psf.shape)
 
         yc = float(yc0)
@@ -242,7 +404,7 @@ def estimate_center_correlation(
 
         shift, _, _ = phase_cross_correlation(sub, rot, upsample_factor=upsample_factor)
 
-        dy_corr, dx_corr = shift 
+        dy_corr, dx_corr = shift
 
         dx = (dx_corr - dy_corr) / 2
         dy = (dx_corr + dy_corr) / 2
@@ -254,7 +416,6 @@ def estimate_center_correlation(
         if ref_psf is not None:
             yc = np.clip(yc, yc0 - search_radius, yc0 + search_radius)
             xc = np.clip(xc, xc0 - search_radius, xc0 + search_radius)
-
 
         if np.hypot(dy, dx) < tol:
             print(f"Center converged after {_+1} iterations.")

@@ -1,4 +1,3 @@
-
 import numpy as np
 from pathlib import Path
 import warnings
@@ -9,27 +8,19 @@ import time
 import gc
 import pandas as pd
 
-
 # images
 import matplotlib as mpl
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+
 mpl.rcParams["hatch.linewidth"] = 0.5  # previous pdf hatch linewidth
 from applefy.utils.positions import center_subpixel
 from matplotlib.patches import Circle
 
-
 # scientific libraries
-import pipeline_pre_ADI.library.pre_processing as pre
-importlib.reload(pre)
-from pipeline_pre_ADI.library.pre_processing import *
-import pipeline_pre_ADI.library.statistics as stat
-importlib.reload(stat)
-from pipeline_pre_ADI.library.statistics import *
-
-
-
+from pipeline_pre_ADI.pre_process.pre_processing import *
+from utils.statistics import *
 
 
 def plot_outlier_images_by_pc(
@@ -60,11 +51,10 @@ def plot_outlier_images_by_pc(
     data = cube[all_indices]
 
     # Log scale requires positive values
-    vmin = 4e-3 #np.percentile(data[data > 0], 1)
+    vmin = 4e-3  # np.percentile(data[data > 0], 1)
     vmax = np.percentile(data[data > 0], 99.5)
 
     norm = LogNorm(vmin=vmin, vmax=vmax)
-
 
     for pc in range(n_components):
 
@@ -79,7 +69,7 @@ def plot_outlier_images_by_pc(
         fig, axes = plt.subplots(
             nrows,
             ncols,
-            figsize=(3*ncols, 3*nrows),
+            figsize=(3 * ncols, 3 * nrows),
         )
 
         axes = np.atleast_1d(axes).ravel()
@@ -101,45 +91,41 @@ def plot_outlier_images_by_pc(
             ax.set_title(f"Frame {idx}")
             ax.axis("off")
 
-
         # remove unused panels
-        for ax in axes[len(indices):]:
+        for ax in axes[len(indices) :]:
             ax.remove()
-
 
         # one colorbar for this PC group
         cbar = fig.colorbar(
             im,
-            ax=axes[:len(indices)],
+            ax=axes[: len(indices)],
             fraction=0.02,
             pad=0.02,
         )
 
         cbar.set_label("Intensity (log scale)")
 
-
         fig.suptitle(
-            f"Outliers detected by PC{pc+1} "
-            f"({len(indices)} frames)",
-            ha = 'center',
-            fontsize=16
+            f"Outliers detected by PC{pc+1} " f"({len(indices)} frames)",
+            ha="center",
+            fontsize=16,
         )
-        #plt.tight_layout()
+        # plt.tight_layout()
         plt.show()
 
 
+def raw_contrast(
+    unaberrated_PSF,
+    mean_psfs,
+    cubes_coro,
+    DIT_psf,
+    DIT_sc_frame,
+    labels=["Classic AO", "Predicitve AO"],
+    binsize=1,
+    plot=False,
+):
 
-def raw_contrast(unaberrated_PSF,
-                      mean_psfs,
-                      cubes_coro,
-                      DIT_psf, 
-                      DIT_sc_frame,
-                      labels = ['Classic AO', 'Predicitve AO' ],
-                      binsize = 1,
-                      plot = False,
-                      ):
-
-    #outputs
+    # outputs
     seps = []
     raw_contrasts = []
     strehls = []
@@ -152,13 +138,22 @@ def raw_contrast(unaberrated_PSF,
     r0, y_unaber, _ = radial_profile_pre(unaberrated_PSF / peak, binsize)
 
     colors = [
-        '#7F3C8D', '#11A579', '#3969AC', '#F2B701',
-        '#E73F74', '#80BA5A', '#E68310', '#008695',
-        '#CF1C90', '#F97B72', '#4B4B8F', '#A5AA99'
+        "#7F3C8D",
+        "#11A579",
+        "#3969AC",
+        "#F2B701",
+        "#E73F74",
+        "#80BA5A",
+        "#E68310",
+        "#008695",
+        "#CF1C90",
+        "#F97B72",
+        "#4B4B8F",
+        "#A5AA99",
     ]
 
-    for (i, (mean_psf, cube_coro)) in enumerate(zip(mean_psfs, cubes_coro)):        
-        mean_psf_coro = np.mean(cube_coro, axis = 0) * factor
+    for i, (mean_psf, cube_coro) in enumerate(zip(mean_psfs, cubes_coro)):
+        mean_psf_coro = np.mean(cube_coro, axis=0) * factor
 
         _, y_coro, _ = radial_profile_pre(mean_psf_coro / peak, binsize)
 
@@ -173,23 +168,24 @@ def raw_contrast(unaberrated_PSF,
             label = labels[i]
 
             _, y_noncoro, _ = radial_profile_pre(mean_psf / peak, binsize)
-        
-            if i ==0:
-                plt.plot(r,
-                        y_unaber,
-                        color='k',
-                        label='Unaberrated')
-                plt.plot(r, y_noncoro, '--',  label='Non-coronagraphic', color = 'black', lw = 2)
-                plt.plot(r, y_coro,':', label='Coronagraphic', color = 'black', lw = 2)      
-            plt.plot(r, y_noncoro, '--', color = colors[i], lw = 2)
-            plt.plot(r, y_coro, ':', color = colors[i], lw = 2)
-            plt.scatter(0, 0, 
-                        marker = 'o', 
-                        color = colors[i], 
-                        label = (label + f' Strehl = {float(strehl):.2f}')
-                        )
-            plt.yscale('log')
-            plt.xlim(left =0)
+
+            if i == 0:
+                plt.plot(r, y_unaber, color="k", label="Unaberrated")
+                plt.plot(
+                    r, y_noncoro, "--", label="Non-coronagraphic", color="black", lw=2
+                )
+                plt.plot(r, y_coro, ":", label="Coronagraphic", color="black", lw=2)
+            plt.plot(r, y_noncoro, "--", color=colors[i], lw=2)
+            plt.plot(r, y_coro, ":", color=colors[i], lw=2)
+            plt.scatter(
+                0,
+                0,
+                marker="o",
+                color=colors[i],
+                label=(label + f" Strehl = {float(strehl):.2f}"),
+            )
+            plt.yscale("log")
+            plt.xlim(left=0)
             plt.ylim(1e-5, 1)
 
             plt.xlabel("Angular separation [FWHM]")
@@ -197,51 +193,53 @@ def raw_contrast(unaberrated_PSF,
 
             plt.legend()
             plt.tight_layout()
-    
+
     return seps, raw_contrasts, strehls
 
-def plot_raw_contrast(unaberrated_PSF,
-                      mean_psfs_coro,
-                      mean_psfs,
-                      binsize = 1):
 
-    #rad_to_arcsec = 206265
+def plot_raw_contrast(unaberrated_PSF, mean_psfs_coro, mean_psfs, binsize=1):
+
+    # rad_to_arcsec = 206265
 
     # Normalize everything by the same peak
     peak = unaberrated_PSF.max()
     r0, y_unaber, _ = radial_profile_pre(unaberrated_PSF / peak, binsize)
 
-
-    #plt.figure(figsize=(6,4))
-    colors = ['#F97B72', '#4B4B8F', 'blue']
+    # plt.figure(figsize=(6,4))
+    colors = ["#F97B72", "#4B4B8F", "blue"]
 
     # plt.plot(r0,
     #         y_unaber,
     #         color='k',
     #         label='Unaberrated')
-    
-    for (i, (mean_psf_stat, mean_psf_stat_coro)) in enumerate(zip(mean_psfs, mean_psfs_coro)):
+
+    for i, (mean_psf_stat, mean_psf_stat_coro) in enumerate(
+        zip(mean_psfs, mean_psfs_coro)
+    ):
         _, y_noncoro, _ = radial_profile_pre(mean_psf_stat / peak, binsize)
         _, y_coro, yerr = radial_profile_pre(mean_psf_stat_coro / peak, binsize)
 
         strehl = mean_psf_stat.max() / peak
         r = np.float64(r0) / calculate_fwhm(mean_psf_stat)
 
-        label = 'Classic AO' if i==0 else 'Predicitve AO' 
+        label = "Classic AO" if i == 0 else "Predicitve AO"
 
-        if i ==0:
-            plt.plot(r,
-                    y_unaber,
-                    color='k',
-                    label='Unaberrated')
-            plt.plot(r, y_noncoro, '--',  label='Non-coronagraphic', color = 'black', lw = 2)
-            plt.plot(r, y_coro,':', label='Coronagraphic', color = 'black', lw = 2)      
-        plt.plot(r, y_noncoro, '--', color = colors[i], lw = 2)
-        plt.plot(r, y_coro, ':', color = colors[i], lw = 2)
-        plt.scatter(0, 0, marker = 'o', color = colors[i], label = (label + f' Strehl = {float(strehl):.2f}'))
+        if i == 0:
+            plt.plot(r, y_unaber, color="k", label="Unaberrated")
+            plt.plot(r, y_noncoro, "--", label="Non-coronagraphic", color="black", lw=2)
+            plt.plot(r, y_coro, ":", label="Coronagraphic", color="black", lw=2)
+        plt.plot(r, y_noncoro, "--", color=colors[i], lw=2)
+        plt.plot(r, y_coro, ":", color=colors[i], lw=2)
+        plt.scatter(
+            0,
+            0,
+            marker="o",
+            color=colors[i],
+            label=(label + f" Strehl = {float(strehl):.2f}"),
+        )
 
-    plt.yscale('log')
-    plt.xlim(left =0)
+    plt.yscale("log")
+    plt.xlim(left=0)
     plt.ylim(3e-6, 1)
 
     plt.xlabel("Angular separation [FWHM]")
@@ -250,10 +248,183 @@ def plot_raw_contrast(unaberrated_PSF,
     plt.legend()
     plt.tight_layout()
 
-    
 
-def plot_symmetric_intensities_single( 
-        data_cube, ax_img, ax_int, title, angle=45.0, coro_rad=8, st2_rad=32, dr=5.0, crop=20, aperture_radius=1.5, r_aperture = 0.5):
+def plot_symmetric_comparison(
+    int_cube,
+    pred_cube,
+    suptitle,
+    angle=45.0,
+    coro_rad=10,
+    st2_rad=32,
+    dr=5,
+    crop=20,
+    aperture_radius=1.5,
+    photometry_radius=0.5,
+    quadratic=False,
+    plot_frame_mean=False,
+    skip=5,
+):
+    """
+    Plot Integrator Control and Predictive Control in one 2x2 figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    axes : ndarray 2x2 array of axes.
+    fit_results : dict Linear-fit results for both datasets.
+    """
+    # ========================================================
+    # # Figure
+    # # ========================================================
+    #
+    # fig, axes = plt.subplots( 2, 2, figsize=(15, 10), )
+
+    fig = plt.figure(figsize=(20, 10))
+    if quadratic == True:
+        width_ratios = [1.0, 0.8, 1.7]
+        fontsize = 10
+    else:
+        width_ratios = [1.2, 1.2, 1.0]
+        fontsize = 12
+    gs = fig.add_gridspec(
+        2,
+        3,
+        width_ratios=width_ratios,
+        wspace=0.15,
+        hspace=0.3,
+    )
+
+    ax_img_int = fig.add_subplot(gs[0, 0])
+    ax_int = fig.add_subplot(gs[0, 1])
+    ax_legend_int = fig.add_subplot(gs[0, 2])
+
+    ax_img_pred = fig.add_subplot(gs[1, 0])
+    ax_pred = fig.add_subplot(gs[1, 1])
+    ax_legend_pred = fig.add_subplot(gs[1, 2])
+
+    # ========================================================
+    # # Integrator Control
+    # # ========================================================
+    linear_legend_handles, quadratic_legend_handles, fit_int = (
+        plot_symmetric_intensities_single(
+            int_cube,
+            ax_img_int,
+            ax_int,
+            title="Integrator Control",
+            angle=angle,
+            inner_rad=coro_rad,
+            outer_rad=st2_rad,
+            dr=dr,
+            crop=crop,
+            aperture_radius=aperture_radius,
+            photometry_radius=photometry_radius,
+            plot_frame_mean=plot_frame_mean,
+            skip=skip,
+        )
+    )
+
+    ax_legend_int.axis("off")
+
+    legend_linear = ax_legend_int.legend(
+        handles=linear_legend_handles,
+        title="Linear fits",
+        loc="upper left",
+        fontsize=fontsize,
+        frameon=False,
+    )
+    ax_legend_int.add_artist(legend_linear)
+
+    if quadratic == True:
+        legend_quadratic = ax_legend_int.legend(
+            handles=quadratic_legend_handles,
+            title="Quadratic fits",
+            loc="upper right",
+            fontsize=fontsize,
+            frameon=False,
+        )
+
+        ax_legend_int.add_artist(legend_quadratic)
+    # ========================================================
+    # # Predictive Control
+    # # ========================================================
+    linear_legend_handles_pred, quadratic_legend_handles_pred, fit_pred = (
+        plot_symmetric_intensities_single(
+            pred_cube,
+            ax_img_pred,
+            ax_pred,
+            title="Predictive Control",
+            angle=angle,
+            inner_rad=coro_rad,
+            outer_rad=st2_rad,
+            dr=dr,
+            crop=crop,
+            aperture_radius=aperture_radius,
+            photometry_radius=photometry_radius,
+            plot_frame_mean=plot_frame_mean,
+            skip=skip,
+        )
+    )
+
+    ax_legend_pred.axis("off")
+
+    legend_linear_pred = ax_legend_pred.legend(
+        handles=linear_legend_handles_pred,
+        title="Linear fits",
+        loc="upper left",
+        fontsize=fontsize,
+        frameon=False,
+    )
+    ax_legend_pred.add_artist(legend_linear_pred)
+
+    if quadratic == True:
+        legend_quadratic_pred = ax_legend_pred.legend(
+            handles=quadratic_legend_handles_pred,
+            title="Quadratic fits",
+            loc="upper right",
+            fontsize=fontsize,
+            frameon=False,
+        )
+        ax_legend_pred.add_artist(legend_quadratic_pred)
+    # ========================================================
+    # Suptitle
+    # ========================================================
+    fig.suptitle(
+        suptitle,
+        fontweight="bold",
+        fontsize=18,
+    )
+
+    fig.tight_layout(
+        # rect=[0, 0, 1, 0.96]
+    )
+
+    # return fig, axes
+    return (
+        fig,
+        # axes,
+        {
+            "integrator": fit_int,
+            "predictive": fit_pred,
+        },
+    )
+
+
+def plot_symmetric_intensities_single(
+    data_cube,
+    ax_img,
+    ax_int,
+    title,
+    angle=45.0,
+    inner_rad=8,
+    outer_rad=32,
+    dr=5,
+    crop=20,
+    aperture_radius=1.5,
+    photometry_radius=0.5,
+    quadratic=False,
+    plot_frame_mean=False,
+    skip=5,
+):
     """
     Plot the image and symmetric-intensity relation for one dataset.
 
@@ -271,13 +442,13 @@ def plot_symmetric_intensities_single(
     title : str
         Title for the figure.
 
-    angle : float
-        Sampling angle in degrees.
+    angle : float or list
+        Sampling angle(s) in degrees.
 
-    coro_rad : float
-        Coronagraph radius in pixels.
+    inner_rad : float
+        Inner sampling radius in pixels.
 
-    st2_rad : float
+    outer_rad : float
         Outer sampling radius in pixels.
 
     dr : float
@@ -289,55 +460,52 @@ def plot_symmetric_intensities_single(
     aperture_radius : float
         Radius of the aperture markers in pixels.
 
+    photometry_radius : float
+        Aperture radius used for intensity extraction.
+
+    quadratic : bool
+        If True, calculate and plot quadratic fits in addition
+        to the linear fits.
+
     Returns
     -------
-    fig, axes
-        Matplotlib figure and axes.
+    linear_legend_handles : list
+        Legend handles for the linear fits.
+
+    quadratic_legend_handles : list
+        Legend handles for the quadratic fits. Empty if quadratic=False.
+
+    fit_results : list
+        Fit results for all radii.
     """
 
     # ========================================================
     # Extract symmetric intensities
     # ========================================================
-    (
-        (x1, y1),
-        left_int,
-        (x2, y2),
-        symmetric_int,
-    ) = symmetric_intensities(
+
+    (x1, y1), left_int, (x2, y2), symmetric_int, radii = symmetric_intensities(
         data_cube[:, crop:-crop, crop:-crop],
         angle,
-        coro_rad,
-        st2_rad,
+        inner_rad,
+        outer_rad,
         dr=dr,
-        r_aperture = r_aperture
-    )
-
-    # ========================================================
-    # Radial positions
-    # ========================================================
-
-    radii = np.arange(
-        coro_rad + 0.5 * dr + r_aperture,
-        st2_rad - r_aperture,
-        (dr + 2 * r_aperture)
+        photometry_radius=photometry_radius,
     )
 
     # ========================================================
     # COLORMAP
     # ========================================================
-    # Colors are now based purely on the sample index,
-    # NOT on radial distance.
+
     cmap = plt.get_cmap("coolwarm")
 
     size = len(radii) * len(angle) if isinstance(angle, list) else len(radii)
-    colors = [
-        cmap(i / max(size - 1, 1))
-        for i in range(size)
-    ]
+
+    colors = [cmap(i / max(size - 1, 1)) for i in range(size)]
 
     # ========================================================
     # IMAGE
     # ========================================================
+
     image = data_cube[
         0,
         crop:-crop,
@@ -346,11 +514,6 @@ def plot_symmetric_intensities_single(
 
     cy, cx = center_subpixel(image)
 
-    # --------------------------------------------------------
-    # Image intensity normalization
-    # --------------------------------------------------------
-    # Ignore zero / negative values because LogNorm requires
-    # strictly positive values.
     positive_image = image[image > 0]
 
     image_norm = LogNorm(
@@ -365,9 +528,6 @@ def plot_symmetric_intensities_single(
         norm=image_norm,
     )
 
-    # --------------------------------------------------------
-    # Image colorbar
-    # --------------------------------------------------------
     cbar_img = ax_img.figure.colorbar(
         im,
         ax=ax_img,
@@ -378,9 +538,7 @@ def plot_symmetric_intensities_single(
 
     cbar_img.set_label("Intensity [ADU]")
 
-    # --------------------------------------------------------
-    # Center = black star
-    # --------------------------------------------------------
+    # Center
     ax_img.plot(
         cx,
         cy,
@@ -392,113 +550,141 @@ def plot_symmetric_intensities_single(
         zorder=20,
     )
 
-    # --------------------------------------------------------
-    # ST2 radius
-    # --------------------------------------------------------
-    ax_img.add_patch( Circle(
-        (cx, cy),
-        st2_rad,
-        fill=False,
-        edgecolor="black",
-        linewidth=1.8,
-        linestyle="--",
-        zorder=10,
-    ))
+    # Outer radius
+    ax_img.add_patch(
+        Circle(
+            (cx, cy),
+            outer_rad,
+            fill=False,
+            edgecolor="black",
+            linewidth=1.8,
+            linestyle="--",
+            zorder=10,
+        )
+    )
 
-    # ax_img.add_patch(st2_circle)
-
-    # --------------------------------------------------------
-    # Coronagraph radius
-    # --------------------------------------------------------
-    ax_img.add_patch( Circle(
-        (cx, cy),
-        coro_rad,
-        fill=False,
-        edgecolor="black",
-        linewidth=1.8,
-        linestyle="--",
-        zorder=10,
-    ))
-
-    # ax_img.add_patch(coro_circle)
-
+    # Inner radius
+    ax_img.add_patch(
+        Circle(
+            (cx, cy),
+            inner_rad,
+            fill=False,
+            edgecolor="black",
+            linewidth=1.8,
+            linestyle="--",
+            zorder=10,
+        )
+    )
 
     # ========================================================
     # APERTURES
     # ========================================================
+
     for j, (xx, yy) in enumerate(zip(x1, y1)):
 
         color = colors[j]
 
-        # Selected side 
-        ax_img.add_patch( Circle(
-            (xx, yy),
-            aperture_radius,
-            fill=False,
-            edgecolor=color,
-            linewidth=3,
-        ))
-
-        # ax_img.add_patch(aperture)
+        # Selected side
+        ax_img.add_patch(
+            Circle(
+                (xx, yy),
+                aperture_radius,
+                fill=False,
+                edgecolor=color,
+                linewidth=3,
+            )
+        )
 
         # Symmetric side
-        ax_img.add_patch( Circle(
-            (x2[j], y2[j]),
-            aperture_radius,
-            fill=False,
-            edgecolor=color,
-            linewidth=3.0,
-            linestyle=":",
-        ))
+        ax_img.add_patch(
+            Circle(
+                (x2[j], y2[j]),
+                aperture_radius,
+                fill=False,
+                edgecolor=color,
+                linewidth=3.0,
+                linestyle=":",
+            )
+        )
 
-        # ax_img.add_patch(aperture_sym)
-
-    ax_img.set_title(
-        f"Sampling locations"
-        #f"$\\theta={(ang for ang in angle if isinstance(angle, list) and angle is not None else angle):.1f}^\\circ$"
-    )
-
+    ax_img.set_title("Sampling locations")
     ax_img.set_xlabel("x [pixel]")
     ax_img.set_ylabel("y [pixel]")
 
     # ========================================================
-    # SYMMETRIC INTENSITY GRAPH + LINEAR FIT
+    # SYMMETRIC INTENSITY GRAPH
     # ========================================================
-    
-    fit_results = [] 
+
+    fit_results = []
     linear_legend_handles = []
     quadratic_legend_handles = []
+
+    # ----------------------------------------------------
+    # Frame mean
+    # ----------------------------------------------------
+
+    if plot_frame_mean:
+
+        frame_means = np.mean(
+            data_cube[:, crop:-crop, crop:-crop],
+            axis=(1, 2),
+        )
+
     for j in np.arange(size):
-        r = radii[j % len(radii)]  # Use modulo to cycle through radii if angle is a list
+
+        r = radii[j // np.size(angle)]
         color = colors[j]
-        x = np.asarray(left_int[:, j]) 
+
+        x = np.asarray(left_int[:, j])
         y = np.asarray(symmetric_int[:, j])
 
+        if plot_frame_mean:
+
+            ax_int.scatter(
+                x[::skip],
+                frame_means[::skip],
+                color="black",
+                marker="x",
+                s=30,
+                alpha=0.8,
+                linewidth=1.5,
+                zorder=5,
+                label="Frame Mean" if j == 0 else None,
+            )
+
         ax_int.scatter(
-            x[::5],y[::5],
+            x[::skip],
+            y[::skip],
             color=color,
             s=8,
             alpha=0.5,
             linewidth=0,
         )
 
-        # ---------------------------------------------------- 
-        # # Remove invalid values before fitting 
-        # # ---------------------------------------------------- 
-        valid = ( np.isfinite(x) & np.isfinite(y) ) 
-        x_fit = x[valid] 
+        # ----------------------------------------------------
+        # Remove invalid values
+        # ----------------------------------------------------
+
+        valid = np.isfinite(x) & np.isfinite(y)
+
+        x_fit = x[valid]
         y_fit = y[valid]
 
+        # Default values
+        slope = np.nan
+        intercept = np.nan
+        r_squared_linear = np.nan
 
-        # --------------------------------------------------------
-        # Linear and quadratic fits
-        # --------------------------------------------------------
-        
+        a = np.nan
+        b = np.nan
+        c = np.nan
+        r_squared_quadratic = np.nan
+
+        # ----------------------------------------------------
+        # Linear fit
+        # ----------------------------------------------------
+
         if len(x_fit) >= 5 and np.ptp(x_fit) > 1e-12:
-
-            # ====================================================
-            # LINEAR FIT
-            # ====================================================
 
             linear_coeffs = np.polyfit(
                 x_fit,
@@ -517,31 +703,10 @@ def plot_symmetric_intensities_single(
                 y_fit,
                 y_pred_linear,
             )
-            # ====================================================
-            # QUADRATIC FIT
-            # ====================================================
 
-            quadratic_coeffs = np.polyfit(
-                x_fit,
-                y_fit,
-                2,
-            )
-
-            a, b, c = quadratic_coeffs
-
-            y_pred_quadratic = np.polyval(
-                quadratic_coeffs,
-                x_fit,
-            )
-
-            r_squared_quadratic = rsquared(
-                y_fit,
-                y_pred_quadratic,
-            )
-
-            # ====================================================
-            # PLOT BOTH FITS
-            # ====================================================
+            # ------------------------------------------------
+            # Plot linear fit
+            # ------------------------------------------------
 
             x_line = np.linspace(
                 x_fit.min(),
@@ -549,11 +714,7 @@ def plot_symmetric_intensities_single(
                 100,
             )
 
-            # Linear
-            y_line_linear = (
-                slope * x_line
-                + intercept
-            )
+            y_line_linear = slope * x_line + intercept
 
             ax_int.plot(
                 x_line,
@@ -563,102 +724,84 @@ def plot_symmetric_intensities_single(
                 linestyle="-",
             )
 
-            # Quadratic
-            y_line_quadratic = (
-                a * x_line**2
-                + b * x_line
-                + c
+            # ------------------------------------------------
+            # Quadratic fit -- only if requested
+            # ------------------------------------------------
+
+            if quadratic:
+
+                quadratic_coeffs = np.polyfit(
+                    x_fit,
+                    y_fit,
+                    2,
+                )
+
+                a, b, c = quadratic_coeffs
+
+                y_pred_quadratic = np.polyval(
+                    quadratic_coeffs,
+                    x_fit,
+                )
+
+                r_squared_quadratic = rsquared(
+                    y_fit,
+                    y_pred_quadratic,
+                )
+
+                y_line_quadratic = a * x_line**2 + b * x_line + c
+
+                ax_int.plot(
+                    x_line,
+                    y_line_quadratic,
+                    color=color,
+                    linewidth=2,
+                    linestyle="--",
+                )
+
+        # ====================================================
+        # Store fit results
+        # ====================================================
+
+        result = {
+            "radius": r,
+            # Linear
+            "slope": slope,
+            "intercept": intercept,
+            "r_squared_linear": r_squared_linear,
+        }
+
+        # Only add quadratic values when requested
+        if quadratic:
+            result.update(
+                {
+                    "a": a,
+                    "b": b,
+                    "c": c,
+                    "r_squared_quadratic": r_squared_quadratic,
+                }
             )
 
-            ax_int.plot(
-                x_line,
-                y_line_quadratic,
-                color=color,
-                linewidth=2,
-                linestyle="--",
-            )
+        fit_results.append(result)
 
-        else:
-
-            slope = np.nan
-            intercept = np.nan
-            r_squared_linear = np.nan
-
-            a = np.nan
-            b = np.nan
-            c = np.nan
-            r_squared_quadratic = np.nan
-
-
-        # --------------------------------------------------------
-        # Store fit
-        # --------------------------------------------------------
-
-        fit_results.append(
-            {
-                "radius": r,
-
-                # Linear
-                "slope": slope,
-                "intercept": intercept,
-                "r_squared_linear": r_squared_linear,
-
-                # Quadratic
-                "a": a,
-                "b": b,
-                "c": c,
-                "r_squared_quadratic": r_squared_quadratic,
-            }
-        )
-
-
-        # --------------------------------------------------------
-        # Legend entries
-        # --------------------------------------------------------
+        # ====================================================
+        # Linear legend
+        # ====================================================
 
         if np.isfinite(slope):
 
-            # Linear
-            sign_linear = (
-                "+"
-                if intercept >= 0
-                else "-"
-            )
+            sign_linear = "+" if intercept >= 0 else "-"
 
             linear_label = (
-                f"r={r:.0f}: "
+                f"r={r:.1f}: "
                 f"y={slope:.3f}x "
                 f"{sign_linear} "
                 f"{abs(intercept):.2g}, "
                 f"$R^2$={r_squared_linear:.3f}"
             )
 
-            # Quadratic
-            sign_b = "+" if b >= 0 else "-"
-            sign_c = "+" if c >= 0 else "-"
-
-            quadratic_label = (
-                f"r={r:.0f}: "
-                f"y={a:.3g}x² "
-                f"{sign_b} {abs(b):.3g}x "
-                f"{sign_c} {abs(c):.3g}, "
-                f"$R^2$={r_squared_quadratic:.3f}"
-            )
-
         else:
 
-            linear_label = (
-                f"r={r:.0f}: fit unavailable"
-            )
-
-            quadratic_label = (
-                f"r={r:.0f}: fit unavailable"
-            )
-
-
-        # --------------------------------------------------------
-        # Separate legend handles
-        # --------------------------------------------------------
+            linear_label = f"r={r:.1f}: fit unavailable"
 
         linear_legend_handles.append(
             Line2D(
@@ -671,27 +814,53 @@ def plot_symmetric_intensities_single(
             )
         )
 
-        quadratic_legend_handles.append(
-            Line2D(
-                [0],
-                [0],
-                color=color,
-                linewidth=2,
-                linestyle="--",
-                label=quadratic_label,
-            )
-        )
+        # ====================================================
+        # Quadratic legend -- only if requested
+        # ====================================================
 
-    #legend_handles.append( Line2D( [0], [0], color=color, linewidth=2, label=label, ) )
-    
+        if quadratic:
+
+            if np.isfinite(a):
+
+                sign_b = "+" if b >= 0 else "-"
+                sign_c = "+" if c >= 0 else "-"
+
+                quadratic_label = (
+                    f"r={r:.1f}: "
+                    f"y={a:.3g}x² "
+                    f"{sign_b} {abs(b):.3g}x "
+                    f"{sign_c} {abs(c):.3g}, "
+                    f"$R^2$={r_squared_quadratic:.3f}"
+                )
+
+            else:
+
+                quadratic_label = f"r={r:.1f}: fit unavailable"
+
+            quadratic_legend_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    linewidth=2,
+                    linestyle="--",
+                    label=quadratic_label,
+                )
+            )
+
+    # ========================================================
+    # AXIS LABELS
+    # ========================================================
+
     ax_int.set_title(title)
 
-    ax_int.set_xlabel("Left intensity [ADU]")
-    ax_int.set_ylabel("180° symmetric intensity [ADU]")
+    ax_int.set_xlabel("Left intensity [ADU]", fontsize=10)
+    ax_int.set_ylabel("180° symmetric intensity [ADU]", fontsize=10)
 
-    # --------------------------------------------------------
+    # ========================================================
     # y = x reference line
-    # --------------------------------------------------------
+    # ========================================================
+
     xlim = ax_int.get_xlim()
     ylim = ax_int.get_ylim()
 
@@ -710,139 +879,8 @@ def plot_symmetric_intensities_single(
     ax_int.set_xlim(0, hi * 0.8)
     ax_int.set_ylim(0, hi * 0.8)
 
-
-
-    # ========================================================
-    # Legend
-    # ========================================================
-
-    # ax_int.legend(
-    #     handles=legend_handles,
-    #     title="Linear fits",
-    #     loc="best",
-    #     fontsize=10,
-    # )
-
-    return linear_legend_handles, quadratic_legend_handles, fit_results
-
-
-
-def plot_symmetric_comparison( int_cube, pred_cube, suptitle, angle=45.0, coro_rad=10, st2_rad=32, dr=5.0, crop=20, aperture_radius=1.5, r_aperture = 0.5
-                              ): 
-    """ 
-    Plot Integrator Control and Predictive Control in one 2x2 figure. 
-    
-    Returns 
-    ------- 
-    fig : matplotlib.figure.Figure 
-    axes : ndarray 2x2 array of axes. 
-    fit_results : dict Linear-fit results for both datasets. 
-    """ 
-    # ======================================================== 
-    # # Figure 
-    # # ======================================================== 
-    # 
-    # fig, axes = plt.subplots( 2, 2, figsize=(15, 10), ) 
-
-    fig = plt.figure(figsize=(20, 10))
-
-    gs = fig.add_gridspec(
-        2,
-        3,
-        width_ratios=[1., 0.8, 1.7],
-        wspace=0.15,
-        hspace=0.3,
+    return (
+        linear_legend_handles,
+        quadratic_legend_handles,
+        fit_results,
     )
-
-    ax_img_int = fig.add_subplot(gs[0, 0])
-    ax_int = fig.add_subplot(gs[0, 1])
-    ax_legend_int = fig.add_subplot(gs[0, 2])
-
-    ax_img_pred = fig.add_subplot(gs[1, 0])
-    ax_pred = fig.add_subplot(gs[1, 1])
-    ax_legend_pred = fig.add_subplot(gs[1, 2])
-
-    # ======================================================== 
-    # # Integrator Control 
-    # # ======================================================== 
-    linear_legend_handles, quadratic_legend_handles, fit_int = plot_symmetric_intensities_single( 
-            int_cube, ax_img_int, ax_int, 
-            title="Integrator Control", 
-            angle=angle, coro_rad=coro_rad, st2_rad=st2_rad, dr=dr, crop=crop, 
-            aperture_radius=aperture_radius, 
-            r_aperture = r_aperture
-            ) 
-
-    ax_legend_int.axis("off")
-
-    legend_linear = ax_legend_int.legend(
-        handles=linear_legend_handles,
-        title="Linear fits",
-        loc="upper left",
-        fontsize=9,
-        frameon=False,
-    )
-
-    legend_quadratic = ax_legend_int.legend(
-        handles=quadratic_legend_handles,
-        title="Quadratic fits",
-        loc="upper right",
-        fontsize=9,
-        frameon=False,
-    )
-
-    ax_legend_int.add_artist(legend_linear)
-    ax_legend_int.add_artist(legend_quadratic)
-    # ======================================================== 
-    # # Predictive Control 
-    # # ======================================================== 
-    linear_legend_handles_pred, quadratic_legend_handles_pred, fit_pred = plot_symmetric_intensities_single( 
-            pred_cube, ax_img_pred, ax_pred, 
-            title="Predictive Control", angle=angle, coro_rad=coro_rad, st2_rad=st2_rad, dr=dr, 
-            crop=crop, aperture_radius=aperture_radius, 
-            r_aperture = r_aperture)
-
-    ax_legend_pred.axis("off")
-
-
-    
-    legend_linear_pred = ax_legend_pred.legend(
-        handles=linear_legend_handles_pred,
-        title="Linear fits",
-        loc="upper left",
-        fontsize=9,
-        frameon=False,
-    )
-
-    legend_quadratic_pred = ax_legend_pred.legend(
-        handles=quadratic_legend_handles_pred,
-        title="Quadratic fits",
-        loc="upper right",
-        fontsize=9,
-        frameon=False,
-    )
-
-    ax_legend_pred.add_artist(legend_linear_pred)
-    ax_legend_pred.add_artist(legend_quadratic_pred)
-    # ========================================================
-    # Suptitle
-    # ========================================================
-    fig.suptitle(
-        suptitle,
-        fontweight = 'bold',
-        fontsize=16,
-    )
-
-    fig.tight_layout(
-        #rect=[0, 0, 1, 0.96]
-    )
-
-    # return fig, axes
-    return ( 
-        fig, 
-        #axes, 
-        { 
-            "integrator": fit_int, 
-            "predictive": fit_pred, 
-            }, 
-            )
