@@ -37,7 +37,7 @@ new_config = copy.deepcopy(config)
 # run_pipeline(config)
 
 # %%--------------------------
-ori_folder = "/home/aosimul/noah/data/ghost_images/10_15_20ws/"
+ori_folder = "/home/aosimul/noah/data/ghost_images/long_7ro_20ws_focus/"
 new_config["experiment"]["ori_folder"] = ori_folder
 
 new_config["fake_planet"]["flux_ratio_mag"] = 15  # np.linspace(4.5, 15.0, 30)
@@ -62,44 +62,49 @@ new_config["fake_planet"]["components"] = np.concatenate(
 new_config["experiment"]["name"] = f"30_deg_sat_speckles"
 new_config["instrument"]["radius_psf"] = None
 new_config["instrument"]["radius_sc"] = None
-new_config["instrument"]["dit_science"] = 10e-3 #2.814e-3 
-new_config["instrument"]["dit_psf"] = 1
+# new_config["instrument"]["dit_psf"] = 1
 new_config["datasets"]["int"]["enabled"] = True
 
-new_config["datasets"]["int"]["psf_factor"] = 1.416e3 * 1.219e6
-new_config["datasets"]["pred"]["psf_factor"] = 1.416e3 * 1.449e6
+# new_config["datasets"]["int"]["psf_factor"] = 1.416e3 * 1.219e6
+# new_config["datasets"]["pred"]["psf_factor"] = 1.416e3 * 1.449e6
 new_config["datasets"]["int"]["psf_file"] = "master_psf.npy"
 new_config["datasets"]["pred"]["psf_file"] = "master_psf.npy"
+new_config["contrast"]["range_constrast_y"] = [16, 4]
 
 
-# new_config["instrument"]["dit_factor"] = 100
-# files_int = []
-# files_pred = []
-# name = '_7ro_20ws_'
-# for key in [1,24,32]:
-#     files_int.append(f'int{name}{key}key_1-4.npy')
-#     files_pred.append(f'pred{name}{key}key_1-4.npy')
+new_config["instrument"]["dit_science"] = 2.814e-3 
+new_config["instrument"]["dit_psf"] = None
+new_config["instrument"]["dit_factor"] = 1
+new_config["instrument"]["science_frames"] = 10000
+files_int = []
+files_pred = []
+name = '_7ro_20ws_'
+for key in [1,24,32]:
+    files_int.append(f'int{name}{key}key_1-4.npy')
+    files_pred.append(f'pred{name}{key}key_1-4.npy')
 
-# new_config["datasets"]["int"]["science_file"] = files_int
-# new_config["datasets"]["pred"]["science_file"] = files_pred
+new_config["datasets"]["int"]["science_file"] = files_int
+new_config["datasets"]["pred"]["science_file"] = files_pred
+new_config["datasets"]["int"]["dit_psf"] = 1/ (1.416e3 * 8.611e5)
+new_config["datasets"]["pred"]["dit_psf"] = 1/ (1.416e3 * 1.019e6)
 
-# run_pipeline(new_config)
-#           
+run_pipeline(new_config)
+          
 
 
-for count in [2]:
-    for ro in [10, 5, 7]:
-        for ws in [10]:
-            name = f"{ro}ro_{ws}ws"
-            with open("/home/aosimul/noah/notebooks/light_intensities.json", "r") as f:
-                light_intensities = json.load(f)
-                sat_int = light_intensities[f'int_{name}_{count}']['satellite']
-                sat_pred = light_intensities[f'pred_{name}_{count}']['satellite']
-            new_config["datasets"]["int"]["science_file"] = f"int_{name}_{count}.npy"
-            new_config["datasets"]["pred"]["science_file"] = f"pred_{name}_{count}.npy"
-            new_config["datasets"]["int"]["psf_factor"] = 1.416e3 * sat_int
-            new_config["datasets"]["pred"]["psf_factor"] = 1.416e3 * sat_pred
-            run_pipeline(new_config)
+# for count in [2]:
+#     for ro in [10, 5, 7]:
+#         for ws in [10]:
+#             name = f"{ro}ro_{ws}ws"
+#             with open("/home/aosimul/noah/notebooks/light_intensities.json", "r") as f:
+#                 light_intensities = json.load(f)
+#                 sat_int = light_intensities[f'int_{name}_{count}']['satellite']
+#                 sat_pred = light_intensities[f'pred_{name}_{count}']['satellite']
+#             new_config["datasets"]["int"]["science_file"] = f"int_{name}_{count}.npy"
+#             new_config["datasets"]["pred"]["science_file"] = f"pred_{name}_{count}.npy"
+#             new_config["datasets"]["int"]["psf_factor"] = 1.416e3 * sat_int
+#             new_config["datasets"]["pred"]["psf_factor"] = 1.416e3 * sat_pred
+#             run_pipeline(new_config)
 
 # with open(
 #     f"/home/aosimul/noah/src/pipeline_ADI/configs/{new_config['experiment']['name']}.yaml",
