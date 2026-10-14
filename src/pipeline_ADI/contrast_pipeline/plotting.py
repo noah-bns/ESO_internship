@@ -108,9 +108,9 @@ def plot_contrast_grid(
 
 def plot_contrast_curves(
     contrast_curves,
-    lim_mag_y,
     curves_output_path,
     extra_title,
+    lim_mag_y = None,
     fwhm=None,
     raw_contrast=None,
     contrast_errors=None,
@@ -260,6 +260,15 @@ def plot_contrast_curves(
         lim_x = lim_x
     else:
         lim_x = (np.min(x) - 0.01, np.max(x) + 0.01)
+
+    if lim_mag_y is None:
+        val = np.asarray(contrast_curves.values, dtype=float)
+        val = val[np.isfinite(val)]
+
+        if val.size > 0:
+            lim_mag_y = (int(np.min(val)), int(np.max(val)))
+        else:
+            lim_mag_y = (0, 1)  # fallback if no valid values
 
     axis_contrast_curves_mag = axis_contrast_curves.twinx()
     axis_contrast_curves_mag.plot(x, flux_ratio2mag(tmp_flux_ratios), alpha=0.0)

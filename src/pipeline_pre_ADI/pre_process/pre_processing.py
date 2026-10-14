@@ -1,4 +1,3 @@
-from networkx import radius
 import numpy as np
 from pathlib import Path
 import warnings
@@ -297,7 +296,7 @@ def center_stack(
     n_satellites=2,
 ):
     """
-    Crop every frame to the largest odd square centered on (yc, xc).
+    Center every frame to the largest odd square centered on (yc, xc).
 
     Parameters
     ----------
@@ -551,8 +550,6 @@ def pca_frame_selection(
         good_mask,
         bad_mask,
         outlier_matrix,
-        good_mask,
-        bad_mask,
         pca_coords,
         medians,
         mads,
@@ -693,8 +690,6 @@ def run_outlier_detection(
         good_mask,
         bad_mask,
         outlier_matrix,
-        good_mask,
-        bad_mask,
         pca_coords,
         medians,
         mads,

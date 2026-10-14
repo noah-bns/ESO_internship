@@ -15,6 +15,7 @@
 experiment:
   name: "test"                        # Default experiment name
 #  ori_folder: "path/to/files/"
+  extrasubname: null                     # extraname to all the saved folders
 
 algorithms:                
   CADI: true                          # Classical ADI

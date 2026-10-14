@@ -3,11 +3,11 @@
 # Every value can be overridden from the CLI, e.g.:
 #   python run_pipeline.py --set modes.save_outputs=false --set geometry.radius=60
 
-run_name: long_7ro_20ws_focus
+run_name: bench
 
 paths:
   # Folder with the raw .tif files and dark frames (darks_img, darks_psf, darks)
-  input_dir: /home/aosimul/noah/data/ghost_images/phase_screens_SLM/10_10/
+  input_dir: /home/aosimul/noah/data/ghost_images/phase_screens_SLM/10_13/
   # Processed image stacks (.npy) end up in <data_root>/<run_name>
   data_root: /home/aosimul/noah/data/ghost_images
   # Plots, json, h5 results end up in <analysis_root>/<run_name>

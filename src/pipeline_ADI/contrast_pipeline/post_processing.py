@@ -139,6 +139,7 @@ def build_dataset(
     dit_factor,
     science_frames,
     psf_factor,
+    extrasubname,
 ):
     """
     Build dataset dictionary from input files.
@@ -207,9 +208,11 @@ def build_dataset(
 
     if science_frames is not None:
         sci_img = sci_img[:science_frames]
+    file_name = science_file[0] if isinstance(science_file, list) else science_file
 
     return {
-        "file_name": science_file[0].split(".npy")[0],
+        "extrasubname": (f"_{extrasubname}" if extrasubname else ""),
+        "file_name": file_name.split(".npy")[0],
         "psf": psf,
         "sci_img": sci_img,
         "fwhm": calculate_fwhm(psf),
@@ -304,6 +307,7 @@ def run_pipeline(config):
             dit_factor=inst["dit_factor"],
             science_frames = inst["science_frames"],
             psf_factor = ds.get("psf_factor", inst["psf_factor"]),
+            extrasubname = config["experiment"]["extrasubname"],
         )
 
     if not datasets:
@@ -340,6 +344,7 @@ def run_pipeline(config):
 
         # Run fake planet experiment
         file_name = dataset["file_name"]
+        extrasubname =  dataset["extrasubname"]
         _, arcsec, windspeed, key, _ = section_name(file_name)
 
         print(
@@ -351,7 +356,7 @@ def run_pipeline(config):
         # Set output directory
         print(f"\nProcessing {dataset_name} with {first_algo}...")
 
-        output_path = root_dir / Path(f"{fp["path"]}/" f"{exp}/" f"{file_name}")
+        output_path = root_dir / Path(f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}")
 
         # Remove existing directory and all its contents
         if output_path.exists():
@@ -444,7 +449,7 @@ def run_pipeline(config):
             rangey = None if cnst["range_constrast_y"] == None else tuple(cnst["range_constrast_y"])
 
             if grid == True:
-                print(f"Computing the Overall best grid for {file_name} ...")
+                print(f"Computing the Overall best grid for {file_name}{extrasubname.replace("_", " ")} ...")
                 baseline_grids = deepcopy(contrasts_output[1])
                 del baseline_grids["cADI"]
                 del baseline_grids["raw_contrast"]
@@ -478,22 +483,22 @@ def run_pipeline(config):
                 best_pca_df.iloc[:, :] = best_pca
                 # best_pca_df.index = flux_ratio2mag(best_pca_df.index)
 
-                print(f"Computing contrast grid for {file_name} ...")
+                print(f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ...")
 
                 save_grid_animation(
-                    contrasts_output[1], curves_output_path, exp + "_" + file_name
+                    contrasts_output[1], curves_output_path, exp + "_" + file_name + extrasubname
                 )
                 plot_overall_best(
-                    best_value_df, curves_output_path, exp + "_" + file_name
+                    best_value_df, curves_output_path, exp + "_" + file_name + extrasubname
                 )
                 plot_overall_best(
-                    best_pca_df, curves_output_path, exp + "_" + file_name, pca=True
+                    best_pca_df, curves_output_path, exp + "_" + file_name + extrasubname, pca=True
                 )
                 _ = plot_contrast_curves(
                     contrast_curves=contrasts_output[0],
                     lim_mag_y=rangey,
                     curves_output_path=curves_output_path,
-                    extra_title=exp + "_" + file_name,
+                    extra_title=exp + "_" + file_name + extrasubname,
                     fwhm=dataset["fwhm"],
                     raw_contrast=raw_contrast,
                     cmap="winter",
@@ -511,7 +516,7 @@ def run_pipeline(config):
                 contrast_curves=contrasts_output[0],
                 lim_mag_y=rangey,
                 curves_output_path=curves_output_path,
-                extra_title="analytical_" + exp + "_" + file_name,
+                extra_title="analytical_" + exp + "_" + file_name + extrasubname,
                 fwhm=dataset["fwhm"],
                 raw_contrast=raw_contrast,
                 contrast_errors=contrasts_output[1],
@@ -521,23 +526,22 @@ def run_pipeline(config):
             if cnst["save_best"]:
                 result_analytical.to_hdf(
                     root_dir / f"{cnst['path']}/{exp}/overall_best.h5",
-                    key=file_name,
+                    key=file_name + extrasubname,
                     mode="a",
                 )
 
 
-########
-def _run_pipeline_old(config):
-    """
-    Main pipeline execution function.
 
-    Reads configuration, builds datasets, and runs all enabled algorithms
-    to compute contrast curves.
+def run_from_checkpoint(config, plot = False):
+    """
+    Reads configuration, builds datasets, and reads the residual files to build the contrast curves.
 
     Parameters
-    ----------
+    ---------- 
     config : dict
         Experiment configuration dictionary.
+    plot : bool
+        if True generate graphs of the curves.
 
     Returns
     -------
@@ -545,19 +549,20 @@ def _run_pipeline_old(config):
         Contrast curves if enabled, otherwise None.
     """
 
+    # 1) Load configuration and variables
     root_dir = Path(".")
 
     inst = config["instrument"]
     fp = config["fake_planet"]
     cnst = config["contrast"]
     exp = config["experiment"]["name"]
+    ori_folder = config["experiment"]["ori_folder"]
 
-    algorithms = {k: k for k, enabled in config["algorithms"].items() if enabled}
 
-    if not algorithms:
-        raise ValueError("No algorithms enabled in configuration.")
+    grid = True if isinstance(fp["flux_ratio_mag"], (list, np.ndarray)) else False
 
     datasets = {}
+    contrasts = {}
 
     for name, ds in config["datasets"].items():
 
@@ -569,99 +574,138 @@ def _run_pipeline_old(config):
         datasets[name] = build_dataset(
             ori_folder=ori_folder,
             science_file=ds["science_file"],
-            dit_science=inst["dit_science"],
-            dit_psf=inst["dit_psf"],
+            dit_science=ds.get("dit_science", inst["dit_science"]),
+            dit_psf=ds.get("dit_psf", inst["dit_psf"]),  # Use dataset-specific dit_psf if provided, otherwise use instrument default
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
             psf_file=ds.get("psf_file"),
             dit_factor=inst["dit_factor"],
+            science_frames = inst["science_frames"],
+            psf_factor = ds.get("psf_factor", inst["psf_factor"]),
+            extrasubname = config["experiment"]["extrasubname"],
         )
 
     if not datasets:
         raise ValueError("No datasets enabled in configuration.")
 
-    # Store all contrast curves
-    all_curves = {}
-
-    # Process each dataset with each algorithm
+    # 2) Process each dataset with each algorithm
     for dataset_name, dataset in datasets.items():
-
-        # Generate parallactic angles
-        if "angle_file" in fp and fp["angle_file"] is not None:
-            # Load angles from file
-            print(f"Loading angles from file (in degrees): {fp['angle_file']}")
-            angles = _load_angles(fp["angle_file"], np.shape(dataset["sci_img"])[0])
-        else:
-            # Generate angles
-            print(
-                f"Generating angles from {fp['angle_start']} to {fp['angle_end']} degrees."
-            )
-            angles = np.linspace(
-                fp["angle_start"], fp["angle_end"], dataset["sci_img"].shape[0]
-            )
-
-        angles = np.deg2rad(angles)
-
-        # Calculate separation range
-        center_coords = center_subpixel(dataset["sci_img"][0])
-        max_sep_pixels = round(center_coords[0] * fp["max_separation"])
-
-        seps = np.arange(0, max_sep_pixels, dataset["fwhm"] * fp["separation"])[1:]
+        # 2.2) Path Configuration for output files
 
         # Run fake planet experiment
-        print(
-            f"Running fake planet experiment with {fp['num_fake_planets']} planets and components {fp['components']}..."
+        file_name = dataset["file_name"]
+        extrasubname =  dataset["extrasubname"]
+        _, arcsec, windspeed, key, _ = section_name(file_name)
+
+        output_path = root_dir / Path(f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}")
+
+        # 2.3) Run the Fake Planet Experiment for the first algorithm
+
+        contrast_instance = Contrast.create_from_checkpoint_dir(
+            psf_template=dataset["psf"],
+            psf_fwhm_radius=dataset["fwhm"] / 2,
+            dit_psf_template=dataset["dit_psf"],
+            dit_science=dataset["dit_science"],
+            checkpoint_dir=output_path,
         )
 
-        # Store contrast curves per dataset
-        dataset_contrast = {}
+        contrasts[dataset_name] = compute_contrast(
+            contrast_instance,
+            dataset["fwhm"],
+            pixel_scale=inst["pixel_size"],
+            photometry=cnst["photometry"],
+            test=cnst["test"],
+            grid=grid,
+        )
 
-        for algo_name in algorithms:
 
-            print(f"\nProcessing {dataset_name} with {algo_name}...")
+        # 3) Compute contrast curves if enabled
+        if plot == True:
+            contrasts_output0, contrasts_output1 = contrasts[dataset_name]
 
-            output_path = root_dir / Path(
-                f"{fp["path"]}/" f"{exp}" f"_{dataset_name}_{algo_name}"
+            curves_output_path = root_dir / Path(
+                f"{cnst['path']}/" f"{exp}/" f"{"_".join(
+                    str(v) for v in [arcsec, windspeed, key]
+                    if v is not None and v != "")}"
             )
 
-            grid = (
-                True if isinstance(fp["flux_ratio_mag"], (list, np.ndarray)) else False
-            )
+            curves_output_path.mkdir(parents=True, exist_ok=True)
 
-            contrast_instance = fake_planet_experiment(
-                contrast_instance=contrast_instance,
-                output_path=output_path,
-                dataset=dataset,
-                fp_config=fp,
-                separations=seps,
-                algo_name=algo_name,
-                angles=angles,
-            )
 
-            # Compute contrast curves if enabled
-            if cnst["enabled"]:
+            # Save grid results
+            rangey = None if cnst["range_constrast_y"] == None else tuple(cnst["range_constrast_y"])
 
-                curves_output_path = root_dir / Path(f"{cnst['path']}" f"/{exp}")
+            if grid == True:
+                print(f"Computing the Overall best grid for {file_name} ...")
+                baseline_grids = deepcopy(contrasts_output1)
+                del baseline_grids["cADI"]
+                del baseline_grids["raw_contrast"]
 
-                curves_output_path.mkdir(parents=True, exist_ok=True)
-
-                dataset_contrast[algo_name] = compute_contrast(
-                    contrast_instance,
-                    dataset["fwhm"],
-                    pixel_scale=inst["pixel_size"],
-                    photometry=cnst["photometry"],
-                    test=cnst["test"],
-                    grid=grid,
+                all_grids = np.array(
+                    [
+                        fpf_2_gaussian_sigma(tmp_grid.values)
+                        for tmp_grid in baseline_grids.values()
+                    ]
                 )
 
-                # Save grid results
-                if grid == True:
-                    print(
-                        f"Computing contrast grid for {dataset_name} - {algo_name}..."
-                    )
+                # Best values
+                best_values = np.max(all_grids, axis=0)
 
-                    _save_grid_animation(
-                        dataset_contrast[algo_name][1],
-                        curves_output_path,
-                        exp + "_" + dataset_name,
-                    )
+                # Which grid produced the best value
+                best_idx = np.argmax(all_grids, axis=0)
+
+                # Map indices to PCA numbers
+                pca_numbers = np.array(
+                    [int(key.split("_")[2]) for key in baseline_grids.keys()]
+                )
+
+                best_pca = pca_numbers[best_idx]
+
+                # Store as DataFrames
+                best_value_df = deepcopy(next(iter(baseline_grids.values())))
+                best_value_df.iloc[:, :] = best_values
+                best_value_df.index = flux_ratio2mag(best_value_df.index)
+
+                best_pca_df = deepcopy(best_value_df)
+                best_pca_df.iloc[:, :] = best_pca
+                # best_pca_df.index = flux_ratio2mag(best_pca_df.index)
+
+                print(f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ...")
+
+                save_grid_animation(
+                    contrasts_output1, curves_output_path, exp + "_" + file_name + extrasubname,
+                )
+                plot_overall_best(
+                    best_value_df, curves_output_path, exp + "_" + file_name + extrasubname,
+                )
+                plot_overall_best(
+                    best_pca_df, curves_output_path, exp + "_" + file_name + extrasubname, pca=True
+                )
+                _ = plot_contrast_curves(
+                    contrast_curves=contrasts_output0,
+                    lim_mag_y=rangey,
+                    curves_output_path=curves_output_path,
+                    extra_title=exp + "_" + file_name + extrasubname,
+                    fwhm=dataset["fwhm"],
+                    cmap="winter",
+                )
+
+            contrasts_output = compute_contrast(
+                contrast_instance,
+                dataset["fwhm"],
+                pixel_scale=inst["pixel_size"],
+                photometry=cnst["photometry"],
+                test=cnst["test"],
+                grid=False,
+            )
+            result_analytical = plot_contrast_curves(
+                contrast_curves=contrasts_output0,
+                lim_mag_y=rangey,
+                curves_output_path=curves_output_path,
+                extra_title="analytical_" + exp + "_" + file_name + extrasubname,
+                fwhm=dataset["fwhm"],
+                contrast_errors=contrasts_output1,
+                cmap="winter",
+            )
+            
+    return contrasts

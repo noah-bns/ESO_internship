@@ -59,7 +59,7 @@ def section_name(s):
     for part in parts:
 
         # int / pred
-        if part in ("int", "pred"):
+        if part in ("int", "pred", "OL", "CL"):
             priority = part
 
         # arcsec: <number>r0 or <number>ro
@@ -141,7 +141,13 @@ def titling(s, key = False):
         special = special.replace("pred", "Predictive AO:")
 
     if "int" in special:
-        special = special.replace("int", "Integrative AO:")
+        special = special.replace("int", "Integrative AO:")   
+
+    if "OL" in special:
+        special = special.replace("OL", "Open Loop:")
+
+    if "CL" in special:
+        special = special.replace("CL", "Closed Loop:")
 
     # Divide ro value by 10 for the title
     special = re.sub(
