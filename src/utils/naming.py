@@ -17,10 +17,17 @@ import tifffile as tiff
 # ----------------------------------------------------------------------------
 
 
-def run_name(ro, ws, key=None, count=None):
-    """Run tag used in file names, e.g. '7ro_20ws_1key_1-4'."""
-    parts = [f"{ro}ro_{ws}ws"]
-    parts += [str(p) for p in (key, count) if p is not None]
+def run_name(ro=None, ws=None, key=None, count=None):
+    """Run tag used in file names, e.g. '7ro_20ws_1key_1-4'. Missing parts are skipped."""
+    parts = []
+    if ro is not None:
+        parts.append(f"{ro}ro")
+    if ws is not None:
+        parts.append(f"{ws}ws")
+    if key is not None:
+        parts.append(f"{key}key")
+    if count is not None:
+        parts.append(str(count))
     return "_".join(parts)
 
 
@@ -111,7 +118,8 @@ def titling(s, show_key=False):
 
 def load_stack(folder, algo, dtype=None, **run):
     """Load '<folder>/<algo>_<run_name>.npy'. `run` takes ro, ws, key, count."""
-    stack = np.load(Path(folder) / f"{algo}_{run_name(**run)}.npy")
+    name = "_".join(p for p in (algo, run_name(**run)) if p)
+    stack = np.load(Path(folder) / f"{name}.npy")
     return stack if dtype is None else stack.astype(dtype)
 
 
