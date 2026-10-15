@@ -14,6 +14,10 @@ Choose /home/aosimul/noah/env_hci/bin/python
 
 Prepares raw `.tif` image stacks for the ADI / contrast pipeline: aligns frames, finds the star centre, subtracts a dark, crops, normalises, and rejects bad frames using PCA with a MAD criterion.
 
+
+Note: I rely on satellite speckle detection in my pre processing routine. I thus had to hard code code coordinates to locate them or at least define a searching area. For reference, I took my data acquisition defining a windowing in the Thorlabs software for the science camera on GHOST, of widths 200 by 200, with un upper left corder at (836, 342). This means the reference satellite speckle I used was located around (102,172) and I also defined a rectangular aperture to block out the center of the image and only show satellite speckles, with assumes that the data acquisition is somewhat centred on the source.
+
+
 Entry points:
 
 | Function | Purpose |
@@ -81,13 +85,18 @@ flowchart TD
         S3 --> S4["median + MAD per component"]
         S4 --> S5["Frame is bad if any component<br/>deviates > mad_threshold * MAD"]
         S5 --> T["Keep good frames of the unmasked stack"]
-        T --> U["Re-normalise by new global max"]
-        S5 --> V{"PCA_analysis?"}
-        V -- yes --> W["plot_pca_frame_selection<br/>save PNG"]
+        T --> U{"normalisation?"}
+        U -- yes --> V["Re-normalise by new global max"]
+        U -- no --> W["constant = 1"]
+        V --> X["Clean stack + normalisation constant"]
+        W --> X
+        S5 --> Y{"PCA_analysis?"}
+        Y -- yes --> Z["plot_pca_frame_selection<br/>save PNG"]
     end
 
     R --> R1
-    U --> Z["Clean stack, outlier_matrix, normalisation_cnst"]
+    X --> ZA["Clean stack, outlier_matrix, normalisation_cnst"]
+
 ```
 
 ---
@@ -96,12 +105,12 @@ flowchart TD
 
 ### 1. `run_pre_processing`
 1. Read all `{img_file}*.tif` files; optionally keep the first `img_key` frames.
-2. Apply `masking_function` if given.
-3. **Centre and align** (`center_stack`): frames are aligned to a reference built from `rect_mask(stack)` using `phase_cross_correlation` and a Fourier shift (preserves speckle statistics better than spline interpolation). The star centre is then estimated and the stack is shifted so the centre lands on an integer pixel.
-4. **Dark subtraction** (if `dark_file`): darks are shifted to the same centre (`method="fixed"`), median-combined into a master dark and subtracted.
-5. **Speckle intensity**: maximum of a small rectangular aperture on the median image.
-6. **Crop** around the centre (`radius`, or the largest square that fits).
-7. **Normalise**: pixels clipped to at least `eps`, converted to float32, divided by the global maximum if `normalisation=True`.
+2. Apply `masking_function`, if given, to the whole sequence.
+3. **Centre and align** (`center_stack`): frames are aligned to a reference built from `rect_mask(stack)` using `phase_cross_correlation` and a Fourier shift (preserves speckle statistics better than spline interpolation). The `rect_mask(stack)` was defined to only keep the satellite speckles which are reliable features on the GHOST bench. The star centre is then estimated and the stack is shifted so the centre lands on an integer pixel.
+4. **Dark subtraction** (if `dark_file`): darks are shifted to the same centre (using `method="fixed"`), median-combined into a master dark and subtracted.
+5. **Speckle intensity**: maximum of a small rectangular aperture on the median image. The aperture was defined according to the coordinates and the windowing I performed my data acquisition with.
+6. **Crop** around the centre (using a defined size `radius`, or the largest square that fits).
+7. **Normalise**: pixels clipped to at least `eps` to avoid zero values in the image, converted to float32, divided by the global maximum if `normalisation=True`.
 
 ### 2. Centre estimation methods (`method=`)
 
@@ -112,7 +121,7 @@ flowchart TD
 | `center_of_mass` | Centroid of the median image, optionally in a window around a reference-PSF peak | `search_radius`, `smooth_sigma` |
 | `gaussian` | 2D Gaussian fit on the median image | `search_radius` clamps the result |
 | `cross_correlation` | Iterative rotational cross-correlation | needs `estimate_center_correlation`, uses `upsample_factor`, `max_iter`, `tol` |
-| `fixed` | Use `coords=(yc, xc)` | |
+| `fixed` | Use given `coords=(yc, xc)` | |
 
 `reference_stack` may be an array or a path prefix (`{prefix}*.tif`, median-combined, Gaussian-smoothed).
 
@@ -217,10 +226,11 @@ numpy, scipy, scikit-image, scikit-learn, photutils, tifffile, matplotlib, panda
 
 ## Known issues / things to check
 
-- The speckle-intensity aperture is hard-coded: `rect_aperture_mask(median, 102, 172, size=20)`. This only makes sense for one detector geometry and should probably become a parameter.
+- The speckle-intensity aperture is hard-coded: `rect_aperture_mask(median, 102, 172, size=20)`. The aperture was defined according to the coordinates and the windowing I performed my data acquisition with. It corresponds to the lower center satellite speckle, with a windowing of 200 by 200, with un upper left corder at (836, 342) on the GHOST science camera.
 - Normalisation happens twice: once at the end of `run_pre_processing` and again after outlier rejection. The constant returned by `run_pre_processing` therefore does not convert back to raw counts on its own. Multiply both constants if you need absolute flux.
 - `center_stack` docstring does not list `masked_annulus` or `gaussian`.
 - `shift(..., mode="constant", cval=0)` after centring introduces zero-valued edges. Cropping removes them only if `radius` is small enough.
+- The `rect_mask(stack)` mask used for alignement was defined to only keep the satellite speckles which are reliable features on the GHOST bench. It also corresponds to my data acquisition, with a windowing of 200 by 200, with un upper left corder at (836, 342) on the GHOST science camera.
 
 Notes on the centering code:
 
@@ -230,3 +240,5 @@ Notes on the centering code:
 - `detect_coron_mask_and_fit_circle` is documented as detecting a *dark* mask, but the code keeps pixels *above* `0.7 * max` of the smoothed image. This works if the image is inverted or the bright ring is what is wanted. Check this matches your data. The `max_area` sanity check is commented out.
 - `centering.py` defines its own `centroid_com` returning `(y, x)`. Because it is star-imported after `photutils.centroids.centroid_com`, it silently replaces the photutils version, which returns `(x, y)`. The `center_of_mass` branch relies on `(y, x)`, so keep the import order.
 - `cross_correlation` is marked "conceptual, not very robust" in its own docstring.
+
+
