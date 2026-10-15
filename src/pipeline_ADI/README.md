@@ -6,10 +6,9 @@ Entry points:
 
 | Function | Purpose |
 |---|---|
-| `load_config(config_path, defaults_path)` | Load experiment YAML, merge over defaults, validate |
+| `load_config(config_path, defaults_path)` | Load experiment YAML, merge over default values set by the default YAML, validate |
 | `run_pipeline(config)` | Full run: build datasets, inject planets, run algorithms, compute and plot contrast |
 | `run_from_checkpoint(config, plot=False)` | Rebuild contrast results from saved residuals, no re-computation of the fake-planet experiment |
-| `_run_pipeline_old(config)` | Deprecated, kept for reference only (see caveats) |
 
 ---
 
@@ -45,7 +44,7 @@ flowchart TD
     I --> J["fake_planet_experiment<br/>first algorithm"]
     J --> K["fake_planet_experiment<br/>remaining algorithms<br/>(results_dict merged)"]
     K --> L{"contrast.enabled?"}
-    L -- no --> Z["Done: residuals on disk"]
+    L -- no --> Z["Done: residuals saved on disk"]
     L -- yes --> M["Load raw contrast from HDF5<br/>(optional)"]
     M --> N{"flux_ratio_mag is a list?<br/>(grid mode)"}
     N -- yes --> O["compute_contrast(grid=True)"]
@@ -71,16 +70,16 @@ Dotted path = `run_from_checkpoint` (reuses the same `build_dataset`, skips inje
 ## Stages in detail
 
 1. **Configuration.** Defaults and experiment YAML are deep-merged (nested dicts merged key by key, everything else overridden). Validation requires the sections `experiment`, `datasets`, `instrument`, `algorithms`, `fake_planet`, and at least one dataset with `enabled: true`.
-2. **Dataset building.** Science cube(s) are loaded from `experiment.ori_folder`. The PSF either comes from `psf_file` or is the sum of the first `dit_psf / dit_science` science frames. Optional steps: crop around the peak, PSF scaling, temporal binning by `dit_factor` (DIT scales accordingly), truncation to `science_frames`. FWHM is measured from the PSF.
+2. **Dataset building.** Science cube(s) are loaded from `experiment.ori_folder`. The PSF either comes from `psf_file` or is the sum of the first `dit_psf / dit_science` science frames (this is relevant for non-corotographic sequences). Optional steps: crop around the peak, PSF scaling (mutualised to the entire reference psf), temporal binning by `dit_factor` (DIT scales accordingly), truncation to `science_frames`. FWHM is measured from the PSF.
 3. **Geometry.** Parallactic angles are loaded from file or generated linearly. Fake-planet separations are spaced by `FWHM * separation`, out to `max_separation` times the image centre radius.
 4. **Fake-planet experiment.** The output directory is **deleted and recreated** for each dataset. `ContrastFast` designs the injection experiment, then each enabled algorithm is run in turn. Results from earlier algorithms are merged into `results_dict`.
 5. **Contrast curves.** If `contrast.enabled`:
-   - *Grid mode* (when `flux_ratio_mag` is a list): per-PCA-component significance grids, an animation, an overall-best significance map and an overall-best PCA-number map. cADI and raw contrast are excluded from the "best" computation.
-   - *Analytical curves*: always computed with `grid=False`, plotted with errors, and optionally saved to `overall_best.h5`.
+   - *Grid mode* (when `flux_ratio_mag` is a list): per-PCA-component significance grids, an animation, an overall-best significance map and an overall-best PCA-number map. 
+   - *Analytical curves*: always computed with `grid=False`, plotted with error bars, and the raw_contrast, cADI and best PCA curves are optionally saved to `overall_best.h5`.
 
 ## Post-processing methods
 
-Each algorithm is a class implementing Applefy's `DataReductionInterface`. For every fake-planet experiment Applefy calls it with the same four inputs and expects a dict of residual images back.
+Each algorithm is a class implementing Applefy's `DataReductionInterface`. For every fake-planet experiment Applefy calls it with the same four inputs and expects a dict of residual images back. The raw_contrast is new, the cADI method is imported from the fours Applefy wrapper, and the PCAD was is a mix of a lot of methods, combined here, and explained later in this section.
 
 ```mermaid
 flowchart TD
@@ -116,7 +115,7 @@ flowchart TD
         C1["Build one star-light model:<br/>the median of all frames over time"]
         C2["Subtract this model from every frame"]
         C3["Rotate each residual frame by its parallactic angle"]
-        C4["Combine the rotated frames (median or mean)"]
+        C4["Combine the rotated frames (median or mean (default))"]
         C5["1 residual image"]
         C1 --> C2 --> C3 --> C4 --> C5
     end
@@ -126,7 +125,7 @@ flowchart TD
         P2["Learn the strongest recurring speckle patterns<br/>from all frames (principal components)"]
         P3["For each chosen number of components:<br/>model each frame's speckles with the strongest patterns<br/>and subtract that model"]
         P4["Rotate each residual frame by its parallactic angle"]
-        P5["Combine the rotated frames (mean or median)"]
+        P5["Combine the rotated frames (mean (default) or median)"]
         P6["One residual image per chosen number of components"]
         P1 --> P2 --> P3 --> P4 --> P5 --> P6
     end
@@ -144,18 +143,17 @@ flowchart TD
 
 In grid mode the pipeline drops `cADI` and `raw_contrast` before computing the "overall best" maps, so only the PCA entries compete. It extracts the PCA number from the key with `key.split("_")[2]`, which relies on the key format above (empty `special_name`).
 
-The source of `CADIDataReductionGPU` (package `fours`) was not in the files you shared. The CADI branch above describes the standard classical-ADI recipe (median subtraction, derotation, combination). Please check it against the `fours` code.
 
 ### PCAD in detail (high-level)
 
 ```mermaid
 flowchart TD
     A["Image sequence with fake planets<br/>+ parallactic angle of every frame"] --> B["Remove the mean:<br/>subtract the average image of the whole sequence from every frame,<br/>so only the changes from frame to frame are modelled"]
-    B --> C["Turn each frame into one long list of pixel values"]
+    B --> C["Flatten: Turn each frame into one long list of pixel values"]
     C --> D["Reference library = ALL frames of the sequence<br/>(no frames skipped or delayed around the frame being cleaned,<br/>no rotation-angle cut)<br/>Frames are still NOT rotated at this stage"]
-    D --> E{"How are the principal components computed?<br/>(automatic choice, or set in the config)"}
+    D --> E{"How are the principal components computed?<br/>(automatic choice, or set in the config (Gram by default)"}
 
-    E -- "many components requested" --> F1["Exact decomposition (SVD):<br/>most accurate, slowest"]
+    E -- "small images or very few frames" --> F1["Exact decomposition (SVD):<br/>most accurate, slowest"]
     E -- "fewer frames than pixels (typical)" --> F2["Frame-similarity method (Gram):<br/>compare frames with each other in a small<br/>frames-by-frames table, find its main directions,<br/>convert back to image patterns. Exact and fast"]
     E -- "very many frames" --> F3["Randomised approximation (low-rank):<br/>estimates only the strongest patterns,<br/>fastest, slightly approximate"]
 
@@ -181,12 +179,12 @@ flowchart TD
 Points to note:
 
 - **Reference frames:** every frame of the sequence is part of the reference library. The code does not exclude neighbouring frames in time or frames with a small rotation difference, so there is no frame delay. A real planet can therefore be partly subtracted (self-subtraction), which is exactly what the fake-planet injection measures.
-- **Order of operations:** mean removal, pattern learning and subtraction all happen on the unrotated frames. Derotation comes only after subtraction.
+- **Order of operations:** mean removal, pattern learning and subtraction all happen on the recorded frames fed into the algorithm. Derotation according to parallactic angles comes only after subtraction.
 - **Computed once:** the patterns are learned a single time for the largest requested number. Smaller numbers simply use the first few patterns.
 
 ## Applefy workflow (how the contrast curve is produced)
 
-The injection, photometry and statistics are done by Applefy (`Contrast` and your `ContrastFast` subclass). Your code drives it in this order:
+The injection, photometry and statistics are done by Applefy (`Contrast` and @Markus Bonse Eristool `ContrastFast` subclass) following this order:
 
 ```mermaid
 flowchart TD
@@ -195,7 +193,7 @@ flowchart TD
     S3 --> S4["run_fake_planet_experiments(algorithm_function)"]
 
     subgraph EXP["for each experiment"]
-        E1["inject fake planets into the sequence<br/>(PSF template scaled by flux ratio and DIT ratio,<br/>rotated with the parallactic angles)"] --> E2["run algorithm<br/>raw_contrast / CADI / PCAD"]
+        E1["inject 'num_planets' fake planets into the sequence<br/>(PSF template scaled by flux ratio and DIT ratio,<br/>rotated with the parallactic angles)"] --> E2["run algorithm<br/>raw_contrast / CADI / PCAD"]
         E2 --> E3["residual image(s) saved to checkpoint dir"]
     end
 
@@ -209,7 +207,7 @@ flowchart TD
     PH1 --> S5
     PH2 --> S5
 
-    S5 --> S6["planet signal at the injected position<br/>noise samples from apertures at the same separation"]
+    S5 --> S6["planet signal at the injected position<br/>noise samples from 'num_planets' apertures at the same separation"]
     S6 --> T{"statistical test"}
     T -- "t-test" --> T1["TTest (Gaussian residual noise)"]
     T -- "bootstrap" --> T2["LaplaceBootstrapTest<br/>(lookup table file required)"]
@@ -223,24 +221,14 @@ flowchart TD
     O2 --> PL2["save_grid_animation, plot_overall_best,<br/>plot_contrast_curves"]
 ```
 
-Steps in words:
+Steps:
 
 1. **Design.** Choose flux ratios (converted from magnitudes), number of fake planets and separations (multiples of the FWHM).
 2. **Inject and reduce.** For each flux ratio and separation, fake planets built from the PSF template are added to the sequence and the chosen algorithm is run. Each algorithm's residuals are stored under its method key.
 3. **Measure.** For each residual, the planet signal at the known position and the noise at the same separation are measured with the chosen photometry mode.
-4. **Test.** The statistical test converts signal and noise into a false-positive fraction (FPF). The threshold is `gaussian_sigma_2_fpf(5)`, i.e. 5 sigma.
-5. **Contrast.** In analytic mode, the contrast at each separation is the flux ratio that reaches the threshold, with an uncertainty from repeating the noise measurement over `num_rot_iter` aperture rotations. In grid mode, the FPF is evaluated over the whole flux-ratio and separation grid per method, and the curves come from thresholding it.
+4. **Test.** The statistical test converts signal and noise into a false-positive fraction (FPF). The default threshold for a true detection is `gaussian_sigma_2_fpf(5)`, i.e. 5 sigma.
+5. **Contrast.** In analytic mode, the contrast at each separation is the flux ratio that reaches the threshold, with an uncertainty from repeating the noise measurement over `num_rot_iter` aperture rotations (20 times by default was found reliable). In grid mode, the FPF is evaluated over the whole flux-ratio and separation grid per method, and the curves come from thresholding it.
 
-The internals of `Contrast` and `ContrastFast` are not in the files you shared, so this summary follows the Applefy documentation. Check the Applefy docs for the exact placement of planets and the contrast calculation.
-
-### Things to check in the post-processing code
-
-- `PCADataReductionGPU` stores `oversample` and `gram_threshold`, but never passes them to `pca_psf_subtraction_gpu`, so they have no effect. The fitter uses its own defaults (`oversample=10`, `gram_threshold=1.0`).
-- `pca_psf_subtraction_gpu` defaults to `pca_method="gram"` while the class defaults to `"auto"`. The pipeline always passes `fp["pca_method"]`.
-- `compute_contrast` only warns on an unrecognised `photometry` or `test` value, then fails later with an undefined variable. Raise an error instead.
-- The bootstrap test loads `"file/to/lookup_table"`, a placeholder path.
-- `num_parallel` is fixed to 1 in `fake_planet_experiment` and `num_cores=10` is fixed in grid mode.
-- `compute_contrast` is documented as returning `contrast_curves_grid, contrast_grids` for the grid case, but the second value is the dict of grids per method, which is what `run_pipeline` indexes as `contrasts_output[1]`.
 
 ## Outputs
 
@@ -264,8 +252,15 @@ The internals of `Contrast` and `ContrastFast` are not in the files you shared, 
 - Python 3.12 or newer (f-strings reuse the same quote type inside expressions).
 - numpy, pandas, pyyaml, applefy, plus the project's own helpers (`ContrastFast`, `Contrast`, `fake_planet_experiment`, `compute_contrast`, `plot_*`, `save_grid_animation`, `section_name`, `zoom_to_peak`, `calculate_fwhm`, unit helpers `mag2flux_ratio`, `flux_ratio2mag`).
 
+
 ## Known issues / things to check
 
+- `PCADataReductionGPU` stores `oversample` and `gram_threshold`, but never passes them to `pca_psf_subtraction_gpu`, so they have no effect. The fitter uses its own defaults (`oversample=10`, `gram_threshold=1.0`).
+- `pca_psf_subtraction_gpu` defaults to `pca_method="gram"` while the class defaults to `"auto"`. The pipeline always passes `fp["pca_method"]`.
+- `compute_contrast` only warns on an unrecognised `photometry` or `test` value, then fails later with an undefined variable. Raise an error instead.
+- The bootstrap test loads `"file/to/lookup_table"`, a placeholder path.
+- `num_parallel` is fixed to 1 in `fake_planet_experiment` and `num_cores=10` is fixed in grid mode.
+- `compute_contrast` is documented as returning `contrast_curves_grid, contrast_grids` for the grid case, but the second value is the dict of grids per method, which is what `run_pipeline` indexes as `contrasts_output[1]`.
 - `build_dataset` expects `zoom_to_peak` to return only an array. The version in the pre-processing module returns `(image, coords)`, so make sure the right one is imported.
 - The `build_dataset` docstring does not list `ori_folder`, `psf_factor`, `science_frames`, `extrasubname`.
 - Output directories are removed with `shutil.rmtree` before every run. Copy results you want to keep.
