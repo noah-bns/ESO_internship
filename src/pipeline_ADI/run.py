@@ -46,7 +46,7 @@ compo = np.concatenate(
     [
         np.arange(0, 10, 5)[1:],
         np.arange(10, 65, 20),
-        np.arange(50, 100, 30),
+        np.arange(50, 60, 30),
     ]
 )
 new_config["fake_planet"]["components"] = compo
@@ -64,7 +64,6 @@ new_config["experiment"]["name"] = f"30_deg_sat_speckles"
 new_config["instrument"]["radius_psf"] = 10
 new_config["instrument"]["radius_sc"] = 45
 new_config["fake_planet"]["max_separation"] = 1
-new_config["fake_planet"]["device"] = "auto"
 # new_config["instrument"]["dit_psf"] = 1
 new_config["datasets"]["int"]["enabled"] = True
 
@@ -92,7 +91,7 @@ new_config["datasets"]["int"]["dit_psf"] = 1/ (1.416e3 * 8.611e5)
 new_config["datasets"]["pred"]["dit_psf"] = 1/ (1.416e3 * 1.019e6)
 
 
-for dit_factor in [3,5,10,100,500,1000, 2000]:
+for dit_factor in [2000]:
     #new_config["instrument"]["science_frames"] = 50000
     new_config["instrument"]["dit_factor"] = dit_factor
     new_config["experiment"]["extrasubname"] = f"DIT_{dit_factor*DIT_sci:.2e}s"
