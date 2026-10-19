@@ -44,7 +44,7 @@ new_config["fake_planet"]["flux_ratio_mag"] = 15  # np.linspace(4.5, 15.0, 30)
 new_config["fake_planet"]["num_fake_planets"] = 6  # np.linspace(4.5, 15.0, 30)
 compo = np.concatenate(
     [
-        np.arange(0, 10, 5)[1:],
+        np.arange(1, 10, 5),
         np.arange(10, 65, 20),
         np.arange(50, 60, 30),
     ]

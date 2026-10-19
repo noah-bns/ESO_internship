@@ -57,6 +57,7 @@ fake_planet:
 
   # Derotation & Combination
   subsample_rotation_grid: 1          # Subsampling factor for field rotation model
+  subtraction: "mean"                 # Subtraction method for cADI (and PCA for future implementations)
   combine: "mean"                     # How to combine derotated frames from all stacks
 
   # Precision and numerical stability

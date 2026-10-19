@@ -79,14 +79,14 @@ Dotted path = `run_from_checkpoint` (reuses the same `build_dataset`, skips inje
 
 ## Post-processing methods
 
-Each algorithm is a class implementing Applefy's `DataReductionInterface`. For every fake-planet experiment Applefy calls it with the same four inputs and expects a dict of residual images back. The raw_contrast is new, the cADI method is imported from the fours Applefy wrapper, and the PCAD was is a mix of a lot of methods, combined here, and explained later in this section.
+Each algorithm is a class implementing Applefy's `DataReductionInterface`. For every fake-planet experiment Applefy calls it with the same four inputs and expects a dict of residual images back. The raw_contrast is new. The cADI method lives in the project's own `cadi_utils.py`, adapted from the fours Applefy wrapper (`fours.utils.adi_tools`): on top of the original median subtraction it adds a `subtraction` option (`mean`, the default, or `median`) for the star-light model, alongside the `combine` option (`mean` or `median`) for the derotated stack. The PCAD is a mix of a lot of methods, combined here, and explained later in this section.
 
 ```mermaid
 flowchart TD
     CFG["config: algorithms<br/>raw_contrast / CADI / PCAD flags"] --> FPE["fake_planet_experiment(algo_name)"]
     FPE --> SW{"algo_name"}
     SW -- "raw_contrast" --> RC["RawContrastReductionGPU(device)"]
-    SW -- "CADI" --> CA["CADIDataReductionGPU(device)<br/>(from fours)"]
+    SW -- "CADI" --> CA["CADIDataReductionGPU(device,<br/>subtraction, combine)<br/>(own cadi_utils, inspired by fours)"]
     SW -- "PCAD" --> PC["PCADataReductionGPU(pca_numbers, pca_method, niter,<br/>eps, approx_svd_trunc, combine, ...)"]
     SW -- "anything else" --> ERR["algorithm_function undefined<br/>(UnboundLocalError)"]
     RC --> RUN["contrast_instance.run_fake_planet_experiments<br/>(algorithm_function, num_parallel=1)"]
@@ -112,10 +112,10 @@ flowchart TD
     end
 
     subgraph CADI["CADI (classical ADI)"]
-        C1["Build one star-light model:<br/>the median of all frames over time"]
+        C1["Build one star-light model:<br/>the mean (default) or median of all frames over time<br/>(subtraction option)"]
         C2["Subtract this model from every frame"]
         C3["Rotate each residual frame by its parallactic angle"]
-        C4["Combine the rotated frames (median or mean (default))"]
+        C4["Combine the rotated frames (mean (default) or median)<br/>(combine option)"]
         C5["1 residual image"]
         C1 --> C2 --> C3 --> C4 --> C5
     end
@@ -138,10 +138,22 @@ flowchart TD
 | Method | What it removes | Output key(s) | Role |
 |---|---|---|---|
 | `raw_contrast` | Nothing, only derotation and mean | `raw_contrast` | Baseline: contrast without any speckle subtraction |
-| `CADI` | Temporal median of the sequence | `cADI` | Classical ADI reference |
+| `CADI` | Temporal mean (default) or median of the sequence (`subtraction`) | `cADI` | Classical ADI reference |
 | `PCAD` | Projection onto the first *k* principal components | `_PCA_<k>_components` (k zero-padded to 3 digits) | Main algorithm, evaluated for each k in `fake_planet.components` |
 
 In grid mode the pipeline drops `cADI` and `raw_contrast` before computing the "overall best" maps, so only the PCA entries compete. It extracts the PCA number from the key with `key.split("_")[2]`, which relies on the key format above (empty `special_name`).
+
+### `combine` and `subtraction` options
+
+Both options are read from the `fake_planet` section of the config and passed to the algorithm classes:
+
+| Algorithm | `subtraction` | `combine` | `None` / missing key |
+|---|---|---|---|
+| `raw_contrast` | not applicable (no subtraction) | always mean | - |
+| `CADI` | `mean` (default) or `median` | `mean` (default) or `median` | Read with `.get()`: a missing or `null` value is not passed on, so the function default is used |
+| `PCAD` | not applicable (projection onto components) | `mean` (default) or `median` | Read with `fp_config["combine"]`: the key must exist and `null` is passed through as-is, which fails |
+
+Goal: the pipeline should behave the same everywhere, PCA included. `combine` and `subtraction` should be optional user inputs for every algorithm that supports them, and a `None` value should always fall back to the default. This is already the case for cADI but not yet for PCA (see *Known issues*).
 
 
 ### PCAD in detail (high-level)
@@ -264,3 +276,12 @@ Steps:
 - `build_dataset` expects `zoom_to_peak` to return only an array. The version in the pre-processing module returns `(image, coords)`, so make sure the right one is imported.
 - The `build_dataset` docstring does not list `ori_folder`, `psf_factor`, `science_frames`, `extrasubname`.
 - Output directories are removed with `shutil.rmtree` before every run. Copy results you want to keep.
+- `combine` / `subtraction` handling is not uniform: `CADIDataReductionGPU` accepts `None` and falls back to its defaults, while the `PCAD` branch indexes `fp_config["combine"]` directly and `PCADataReductionGPU` has no `None` fallback. Make the PCA path accept optional / `None` values the same way.
+
+## Changes from the applefy and fours libraries
+
+Everything in `contrast_pipeline/` is built on applefy (`Contrast`, `DataReductionInterface`, fake-planet injection, photometry, statistics) and fours (`FieldRotationModel`, `adi_tools`). The parts that differ from those libraries are:
+
+- **Raw contrast (`raw_contrast_utils.py`, new).** `RawContrastReductionGPU` performs no star-light subtraction at all: frames are derotated with the fours `FieldRotationModel` and mean-combined on the GPU. It gives the unsubtracted noise baseline that neither library provides.
+- **cADI subtraction parameter (`cadi_utils.py`, adapted from `fours.utils.adi_tools`).** fours only subtracts the temporal median. The adapted `cadi_psf_subtraction` / `cadi_psf_subtraction_gpu` add a `subtraction` argument (`mean`, default, or `median`) next to `combine`, and the `CADIDataReduction` / `CADIDataReductionGPU` wrappers take both as optional arguments, forwarding them only when they are not `None`. The GPU version also uses `torch.median(..., dim=0).values` and `torch.mean(..., dim=0)` instead of the original `axis` calls.
+- **PCA options (`pca_utils.py`).** The PCA reduction is a GPU implementation combining several approaches rather than the fours/applefy PCA: selectable `pca_method` (`auto`, `svd`, `gram`, `lowrank`), with `niter`, `eps`, `approx_svd_trunc`, `oversample` and `gram_threshold` to tune the auto-selection and the low-rank approximation, components computed once for the largest requested number, `combine` (`mean` or `median`, with an extra temporal-median subtraction in the median case), `subsample_rotation_grid`, and tensorboard logging to `work_dir`.

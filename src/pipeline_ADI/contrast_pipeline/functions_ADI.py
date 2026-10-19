@@ -29,11 +29,12 @@ from applefy.statistics import (
     fpf_2_gaussian_sigma,
     LaplaceBootstrapTest,
 )
-from fours.detection_limits.applefy_wrapper import (
-    CADIDataReductionGPU,
-)  # , PCADataReductionGPU
+# from fours.detection_limits.applefy_wrapper import (
+#     #CADIDataReductionGPU,
+# )  # , PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
-from .raw_contrast import RawContrastReductionGPU
+from .raw_contrast_utils import RawContrastReductionGPU
+from .cadi_utils import CADIDataReductionGPU
 from .plotting import *
 from utils.statistics import calculate_fwhm
 from applefy.detections.contrast import Contrast
@@ -172,7 +173,11 @@ def fake_planet_experiment(
 
     if algo_name == "CADI":
 
-        algorithm_function = CADIDataReductionGPU(device=fp_config["device"])
+        algorithm_function = CADIDataReductionGPU(
+            device=fp_config["device"],
+            subtraction=fp_config.get("subtraction"),
+            combine=fp_config.get("combine"),
+)
 
     # try:
     #     contrast_instance.run_fake_planet_experiments(
