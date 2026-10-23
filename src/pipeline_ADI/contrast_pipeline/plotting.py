@@ -110,7 +110,7 @@ def plot_contrast_curves(
     contrast_curves,
     curves_output_path,
     extra_title,
-    lim_mag_y = None,
+    lim_mag_y=None,
     fwhm=None,
     raw_contrast=None,
     contrast_errors=None,

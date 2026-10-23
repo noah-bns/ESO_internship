@@ -95,7 +95,7 @@ def _validate_required_fields(config):
     required_fields = {
         "experiment": ["name", "ori_folder"],  # Will default to 'test'
         "datasets": None,
-        "instrument": ["dit_science", "dit_psf"],  
+        "instrument": ["dit_science", "dit_psf"],
         "algorithms": None,
         # Optional fields with enforced defaults:
         "fake_planet": [
@@ -169,10 +169,7 @@ def build_dataset(
     # support single files or lists of files
     science_files = science_file if isinstance(science_file, list) else [science_file]
 
-    arrays = [
-        np.load(ori_folder + file)
-        for file in science_files
-    ]
+    arrays = [np.load(ori_folder + file) for file in science_files]
 
     sci_img = arrays[0] if len(arrays) == 1 else np.concatenate(arrays, axis=0)
 
@@ -196,7 +193,7 @@ def build_dataset(
         print("PSF assumed square and centered. No zooming applied.")
 
     if dit_factor is not None:
-        #truncate to reshape
+        # truncate to reshape
         n = (sci_img.shape[0] // dit_factor) * dit_factor
         sci_img = sci_img[:n]
 
@@ -300,14 +297,16 @@ def run_pipeline(config):
             ori_folder=ori_folder,
             science_file=ds["science_file"],
             dit_science=ds.get("dit_science", inst["dit_science"]),
-            dit_psf=ds.get("dit_psf", inst["dit_psf"]),  # Use dataset-specific dit_psf if provided, otherwise use instrument default
+            dit_psf=ds.get(
+                "dit_psf", inst["dit_psf"]
+            ),  # Use dataset-specific dit_psf if provided, otherwise use instrument default
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
             psf_file=ds.get("psf_file"),
             dit_factor=inst["dit_factor"],
-            science_frames = inst["science_frames"],
-            psf_factor = ds.get("psf_factor", inst["psf_factor"]),
-            extrasubname = config["experiment"]["extrasubname"],
+            science_frames=inst["science_frames"],
+            psf_factor=ds.get("psf_factor", inst["psf_factor"]),
+            extrasubname=config["experiment"]["extrasubname"],
         )
 
     if not datasets:
@@ -344,7 +343,7 @@ def run_pipeline(config):
 
         # Run fake planet experiment
         file_name = dataset["file_name"]
-        extrasubname =  dataset["extrasubname"]
+        extrasubname = dataset["extrasubname"]
         _, arcsec, windspeed, key, _ = section_name(file_name)
 
         print(
@@ -356,7 +355,9 @@ def run_pipeline(config):
         # Set output directory
         print(f"\nProcessing {dataset_name} with {first_algo}...")
 
-        output_path = root_dir / Path(f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}")
+        output_path = root_dir / Path(
+            f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}"
+        )
 
         # Remove existing directory and all its contents
         if output_path.exists():
@@ -446,10 +447,16 @@ def run_pipeline(config):
             )
 
             # Save grid results
-            rangey = None if cnst["range_constrast_y"] == None else tuple(cnst["range_constrast_y"])
+            rangey = (
+                None
+                if cnst["range_constrast_y"] == None
+                else tuple(cnst["range_constrast_y"])
+            )
 
             if grid == True:
-                print(f"Computing the Overall best grid for {file_name}{extrasubname.replace("_", " ")} ...")
+                print(
+                    f"Computing the Overall best grid for {file_name}{extrasubname.replace("_", " ")} ..."
+                )
                 baseline_grids = deepcopy(contrasts_output[1])
                 del baseline_grids["cADI"]
                 del baseline_grids["raw_contrast"]
@@ -483,16 +490,25 @@ def run_pipeline(config):
                 best_pca_df.iloc[:, :] = best_pca
                 # best_pca_df.index = flux_ratio2mag(best_pca_df.index)
 
-                print(f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ...")
+                print(
+                    f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ..."
+                )
 
                 save_grid_animation(
-                    contrasts_output[1], curves_output_path, exp + "_" + file_name + extrasubname
+                    contrasts_output[1],
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
                 )
                 plot_overall_best(
-                    best_value_df, curves_output_path, exp + "_" + file_name + extrasubname
+                    best_value_df,
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
                 )
                 plot_overall_best(
-                    best_pca_df, curves_output_path, exp + "_" + file_name + extrasubname, pca=True
+                    best_pca_df,
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
+                    pca=True,
                 )
                 _ = plot_contrast_curves(
                     contrast_curves=contrasts_output[0],
@@ -531,13 +547,12 @@ def run_pipeline(config):
                 )
 
 
-
-def run_from_checkpoint(config, plot = False):
+def run_from_checkpoint(config, plot=False):
     """
     Reads configuration, builds datasets, and reads the residual files to build the contrast curves.
 
     Parameters
-    ---------- 
+    ----------
     config : dict
         Experiment configuration dictionary.
     plot : bool
@@ -558,7 +573,6 @@ def run_from_checkpoint(config, plot = False):
     exp = config["experiment"]["name"]
     ori_folder = config["experiment"]["ori_folder"]
 
-
     grid = True if isinstance(fp["flux_ratio_mag"], (list, np.ndarray)) else False
 
     datasets = {}
@@ -575,14 +589,16 @@ def run_from_checkpoint(config, plot = False):
             ori_folder=ori_folder,
             science_file=ds["science_file"],
             dit_science=ds.get("dit_science", inst["dit_science"]),
-            dit_psf=ds.get("dit_psf", inst["dit_psf"]),  # Use dataset-specific dit_psf if provided, otherwise use instrument default
+            dit_psf=ds.get(
+                "dit_psf", inst["dit_psf"]
+            ),  # Use dataset-specific dit_psf if provided, otherwise use instrument default
             radius_psf=inst["radius_psf"],
             radius_sc=inst.get("radius_sc"),
             psf_file=ds.get("psf_file"),
             dit_factor=inst["dit_factor"],
-            science_frames = inst["science_frames"],
-            psf_factor = ds.get("psf_factor", inst["psf_factor"]),
-            extrasubname = config["experiment"]["extrasubname"],
+            science_frames=inst["science_frames"],
+            psf_factor=ds.get("psf_factor", inst["psf_factor"]),
+            extrasubname=config["experiment"]["extrasubname"],
         )
 
     if not datasets:
@@ -594,10 +610,12 @@ def run_from_checkpoint(config, plot = False):
 
         # Run fake planet experiment
         file_name = dataset["file_name"]
-        extrasubname =  dataset["extrasubname"]
+        extrasubname = dataset["extrasubname"]
         _, arcsec, windspeed, key, _ = section_name(file_name)
 
-        output_path = root_dir / Path(f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}")
+        output_path = root_dir / Path(
+            f"{fp["path"]}/" f"{exp}/" f"{file_name}{extrasubname}"
+        )
 
         # 2.3) Run the Fake Planet Experiment for the first algorithm
 
@@ -618,7 +636,6 @@ def run_from_checkpoint(config, plot = False):
             grid=grid,
         )
 
-
         # 3) Compute contrast curves if enabled
         if plot == True:
             contrasts_output0, contrasts_output1 = contrasts[dataset_name]
@@ -631,9 +648,12 @@ def run_from_checkpoint(config, plot = False):
 
             curves_output_path.mkdir(parents=True, exist_ok=True)
 
-
             # Save grid results
-            rangey = None if cnst["range_constrast_y"] == None else tuple(cnst["range_constrast_y"])
+            rangey = (
+                None
+                if cnst["range_constrast_y"] == None
+                else tuple(cnst["range_constrast_y"])
+            )
 
             if grid == True:
                 print(f"Computing the Overall best grid for {file_name} ...")
@@ -670,16 +690,25 @@ def run_from_checkpoint(config, plot = False):
                 best_pca_df.iloc[:, :] = best_pca
                 # best_pca_df.index = flux_ratio2mag(best_pca_df.index)
 
-                print(f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ...")
+                print(
+                    f"Computing contrast grid for {file_name}{extrasubname.replace("_", " ")} ..."
+                )
 
                 save_grid_animation(
-                    contrasts_output1, curves_output_path, exp + "_" + file_name + extrasubname,
+                    contrasts_output1,
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
                 )
                 plot_overall_best(
-                    best_value_df, curves_output_path, exp + "_" + file_name + extrasubname,
+                    best_value_df,
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
                 )
                 plot_overall_best(
-                    best_pca_df, curves_output_path, exp + "_" + file_name + extrasubname, pca=True
+                    best_pca_df,
+                    curves_output_path,
+                    exp + "_" + file_name + extrasubname,
+                    pca=True,
                 )
                 _ = plot_contrast_curves(
                     contrast_curves=contrasts_output0,
@@ -707,5 +736,5 @@ def run_from_checkpoint(config, plot = False):
                 contrast_errors=contrasts_output1,
                 cmap="winter",
             )
-            
+
     return contrasts

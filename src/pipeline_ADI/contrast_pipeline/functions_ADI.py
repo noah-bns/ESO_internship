@@ -19,7 +19,6 @@ from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
 import matplotlib.gridspec as gridspec
 
-
 # scientific libraries
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
@@ -29,6 +28,7 @@ from applefy.statistics import (
     fpf_2_gaussian_sigma,
     LaplaceBootstrapTest,
 )
+
 # from fours.detection_limits.applefy_wrapper import (
 #     #CADIDataReductionGPU,
 # )  # , PCADataReductionGPU
@@ -177,7 +177,7 @@ def fake_planet_experiment(
             device=fp_config["device"],
             subtraction=fp_config.get("subtraction"),
             combine=fp_config.get("combine"),
-)
+        )
 
     # try:
     #     contrast_instance.run_fake_planet_experiments(

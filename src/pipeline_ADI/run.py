@@ -74,29 +74,28 @@ new_config["datasets"]["pred"]["psf_file"] = "master_psf.npy"
 new_config["contrast"]["range_constrast_y"] = [16, 4]
 
 
-DIT_sci = 2.814e-3 
+DIT_sci = 2.814e-3
 new_config["instrument"]["dit_science"] = DIT_sci
 new_config["instrument"]["dit_psf"] = None
 new_config["instrument"]["science_frames"] = None
 files_int = []
 files_pred = []
-name = '_7ro_20ws_'
-for key in [1,24,32]: #
-    files_int.append(f'int{name}{key}key_1-4.npy')
-    files_pred.append(f'pred{name}{key}key_1-4.npy')
+name = "_7ro_20ws_"
+for key in [1, 24, 32]:  #
+    files_int.append(f"int{name}{key}key_1-4.npy")
+    files_pred.append(f"pred{name}{key}key_1-4.npy")
 
 new_config["datasets"]["int"]["science_file"] = files_int
 new_config["datasets"]["pred"]["science_file"] = files_pred
-new_config["datasets"]["int"]["dit_psf"] = 1/ (1.416e3 * 8.611e5)
-new_config["datasets"]["pred"]["dit_psf"] = 1/ (1.416e3 * 1.019e6)
+new_config["datasets"]["int"]["dit_psf"] = 1 / (1.416e3 * 8.611e5)
+new_config["datasets"]["pred"]["dit_psf"] = 1 / (1.416e3 * 1.019e6)
 
 
 for dit_factor in [2000]:
-    #new_config["instrument"]["science_frames"] = 50000
+    # new_config["instrument"]["science_frames"] = 50000
     new_config["instrument"]["dit_factor"] = dit_factor
     new_config["experiment"]["extrasubname"] = f"DIT_{dit_factor*DIT_sci:.2e}s"
     run_pipeline(new_config)
-          
 
 
 # for count in [2]:
