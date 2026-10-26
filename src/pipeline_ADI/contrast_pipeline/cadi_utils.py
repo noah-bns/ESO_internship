@@ -8,6 +8,7 @@ from scipy.ndimage import rotate
 from tqdm import tqdm
 
 import torch
+from astropy.io import fits
 
 from applefy.detections.contrast import DataReductionInterface
 from fours.models.psf_subtraction import FourS
@@ -17,12 +18,40 @@ from fours.models.rotation import FieldRotationModel
 # - combine and substraction options
 
 
+def cadi_fits_logging(
+    log_dir: Union[str, Path],
+    noise_frame: Union[np.ndarray, torch.Tensor],
+) -> None:
+    """Write the cADI temporal noise model as a FITS image."""
+
+    noise_frames_dir = Path(log_dir) / "Noise_frames"
+    noise_frames_dir.mkdir(exist_ok=True, parents=True)
+
+    if isinstance(noise_frame, torch.Tensor):
+        noise_frame = noise_frame.detach().cpu().numpy()
+    else:
+        noise_frame = np.asarray(noise_frame)
+
+    if noise_frame.ndim != 2:
+        raise ValueError(
+            f"Expected a two-dimensional cADI noise frame, got {noise_frame.shape}."
+        )
+
+    fits.writeto(
+        noise_frames_dir / "cADI.fits",
+        data=noise_frame,
+        overwrite=True,
+    )
+
+
 def cadi_psf_subtraction(
     images: np.ndarray,
     angles: np.ndarray,
     subtraction: str = "mean",
     combine: str = "mean",
-):
+    noise_visualise: bool = False,
+    work_dir: Union[str, Path, None] = None,
+) -> Union[np.ndarray, None]:
 
     if subtraction not in {"mean", "median"}:
         raise ValueError("subtraction must be 'mean' or 'median'")
@@ -36,6 +65,12 @@ def cadi_psf_subtraction(
     if subtraction == "mean":
         sub_frame = np.mean(images, axis=0)
         print("Subtracting a mean.")
+
+    if noise_visualise:
+        if work_dir is None:
+            raise ValueError("work_dir must be provided when noise_visualise=True.")
+        cadi_fits_logging(log_dir=work_dir, noise_frame=sub_frame)
+        return None
 
     residual_sequence = images - sub_frame
 
@@ -52,7 +87,9 @@ def cadi_psf_subtraction_gpu(
     angles: np.ndarray,
     subtraction: str = "mean",
     combine: str = "mean",
-):
+    noise_visualise: bool = False,
+    work_dir: Union[str, Path, None] = None,
+) -> Union[np.ndarray, None]:
 
     if subtraction not in {"mean", "median"}:
         raise ValueError("subtraction must be 'mean' or 'median'")
@@ -70,6 +107,12 @@ def cadi_psf_subtraction_gpu(
     if subtraction == "mean":
         sub_frame = torch.mean(images, dim=0)
         print("Subtracting a mean.")
+
+    if noise_visualise:
+        if work_dir is None:
+            raise ValueError("work_dir must be provided when noise_visualise=True.")
+        cadi_fits_logging(log_dir=work_dir, noise_frame=sub_frame)
+        return None
 
     residual_sequence = images - sub_frame
 
@@ -141,9 +184,13 @@ class CADIDataReduction(DataReductionInterface):
         self,
         subtraction: str | None = None,
         combine: str | None = None,
+        work_dir: Union[str, Path, None] = None,
+        noise_visualise: bool = False,
     ):
         self.subtraction = subtraction
         self.combine = combine
+        self.work_dir = Path(work_dir) if work_dir is not None else None
+        self.noise_visualise = noise_visualise
 
     def get_method_keys(self) -> List[str]:
         return [
@@ -169,8 +216,13 @@ class CADIDataReduction(DataReductionInterface):
         residual = cadi_psf_subtraction(
             images=stack_with_fake_planet,
             angles=parang_rad,
+            noise_visualise=self.noise_visualise,
+            work_dir=self.work_dir,
             **optional_args,
         )
+
+        if self.noise_visualise:
+            return {}
 
         return {"cADI": residual}
 
@@ -182,10 +234,14 @@ class CADIDataReductionGPU(DataReductionInterface):
         device,
         subtraction: str | None = None,
         combine: str | None = None,
+        work_dir: Union[str, Path, None] = None,
+        noise_visualise: bool = False,
     ):
         self.device = device
         self.subtraction = subtraction
         self.combine = combine
+        self.work_dir = Path(work_dir) if work_dir is not None else None
+        self.noise_visualise = noise_visualise
 
     def get_method_keys(self) -> List[str]:
         return [
@@ -212,7 +268,12 @@ class CADIDataReductionGPU(DataReductionInterface):
             images=stack_with_fake_planet,
             angles=parang_rad,
             device=self.device,
+            noise_visualise=self.noise_visualise,
+            work_dir=self.work_dir,
             **optional_args,
         )
+
+        if self.noise_visualise:
+            return {}
 
         return {"cADI": residual}

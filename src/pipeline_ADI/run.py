@@ -42,13 +42,7 @@ new_config["experiment"]["ori_folder"] = ori_folder
 
 new_config["fake_planet"]["flux_ratio_mag"] = 15  # np.linspace(4.5, 15.0, 30)
 new_config["fake_planet"]["num_fake_planets"] = 6  # np.linspace(4.5, 15.0, 30)
-compo = np.concatenate(
-    [
-        np.arange(1, 10, 5),
-        np.arange(10, 65, 20),
-        np.arange(50, 60, 30),
-    ]
-)
+compo = np.arange(1,100)
 new_config["fake_planet"]["components"] = compo
 # %%--------------------------
 # for ro in [0.5,0.7,1.0]:
@@ -89,9 +83,9 @@ new_config["datasets"]["int"]["science_file"] = files_int
 new_config["datasets"]["pred"]["science_file"] = files_pred
 new_config["datasets"]["int"]["dit_psf"] = 1 / (1.416e3 * 8.611e5)
 new_config["datasets"]["pred"]["dit_psf"] = 1 / (1.416e3 * 1.019e6)
+new_config["fake_planet"]["visualisation"] = True
 
-
-for dit_factor in [2000]:
+for dit_factor in [10]:
     # new_config["instrument"]["science_frames"] = 50000
     new_config["instrument"]["dit_factor"] = dit_factor
     new_config["experiment"]["extrasubname"] = f"DIT_{dit_factor*DIT_sci:.2e}s"

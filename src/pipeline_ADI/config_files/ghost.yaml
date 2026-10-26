@@ -42,8 +42,8 @@ fake_planet:
 
 contrast:
 
-  enabled: true         # if not enabled, only the fake planet experiment is performed
-  save_best: true                     # Save contrast curves overall best as CSV files.
+  enabled: false         # if not enabled, only the fake planet experiment is performed
+  save_best: false                     # Save contrast curves overall best as CSV files.
                                       # OPTIONAL, Default: false
   raw_contrasts: null
   range_constrast_y: null

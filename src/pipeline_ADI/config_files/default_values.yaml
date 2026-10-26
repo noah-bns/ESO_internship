@@ -48,6 +48,7 @@ fake_planet:
   max_separation: 1.0                 # Maximum search radius. Units: fraction of image radius 
   scaling_factor: 1.0                 # Flux scaling factor. 
   device: "auto"                      # Processing device. "auto" (GPU if available), 'cpu' or 'cuda'
+  visualisation: false                # Save cADI/PCA noise frames instead of their residual images. Raw contrast is unaffected.
   pca_method: "gram"                  # PCA method. Allowed values: "auto", "svd", "gram", or "lowrank"
   niter: 2                            # Power iterations for lowrank method (higher = more accurate, slower)
   approx_svd_trunc: null              # Approximate SVD truncation rank (-1 for full SVD)

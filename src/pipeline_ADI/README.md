@@ -72,8 +72,8 @@ Dotted path = `run_from_checkpoint` (reuses the same `build_dataset`, skips inje
 1. **Configuration.** Defaults and experiment YAML are deep-merged (nested dicts merged key by key, everything else overridden). Validation requires the sections `experiment`, `datasets`, `instrument`, `algorithms`, `fake_planet`, and at least one dataset with `enabled: true`.
 2. **Dataset building.** Science cube(s) are loaded from `experiment.ori_folder`. The PSF either comes from `psf_file` or is the sum of the first `dit_psf / dit_science` science frames (this is relevant for non-corotographic sequences). Optional steps: crop around the peak, PSF scaling (mutualised to the entire reference psf), temporal binning by `dit_factor` (DIT scales accordingly), truncation to `science_frames`. FWHM is measured from the PSF.
 3. **Geometry.** Parallactic angles are loaded from file or generated linearly. Fake-planet separations are spaced by `FWHM * separation`, out to `max_separation` times the image centre radius.
-4. **Fake-planet experiment.** The output directory is **deleted and recreated** for each dataset. `ContrastFast` designs the injection experiment, then each enabled algorithm is run in turn. Results from earlier algorithms are merged into `results_dict`.
-5. **Contrast curves.** If `contrast.enabled`:
+4. **Fake-planet experiment.** The output directory is **deleted and recreated** for each dataset. With the default `fake_planet.visualisation: false`, `ContrastFast` designs the injection experiment, then each enabled algorithm is run in turn and results from earlier algorithms are merged into `results_dict`. With `visualisation: true`, cADI and PCA instead run once on the original science cube to export their noise models; raw contrast keeps its normal behavior.
+5. **Contrast curves.** If `contrast.enabled` and `fake_planet.visualisation` is `false`:
    - *Grid mode* (when `flux_ratio_mag` is a list): per-PCA-component significance grids, an animation, an overall-best significance map and an overall-best PCA-number map. 
    - *Analytical curves*: always computed with `grid=False`, plotted with error bars, and the raw_contrast, cADI and best PCA curves are optionally saved to `overall_best.h5`.
 
@@ -154,6 +154,30 @@ Both options are read from the `fake_planet` section of the config and passed to
 | `PCAD` | not applicable (projection onto components) | `mean` (default) or `median` | Read with `fp_config["combine"]`: the key must exist and `null` is passed through as-is, which fails |
 
 Goal: the pipeline should behave the same everywhere, PCA included. `combine` and `subtraction` should be optional user inputs for every algorithm that supports them, and a `None` value should always fall back to the default. This is already the case for cADI but not yet for PCA (see *Known issues*).
+
+### Noise-frame FITS export
+
+The pipeline exposes a diagnostic mode through the `fake_planet.visualisation` configuration key. It defaults to `false`; enable it with:
+
+```yaml
+fake_planet:
+  visualisation: true
+```
+
+In this mode, cADI and PCA each run once on the original science cube rather than on every injected fake-planet cube. They write their fitted noise models into the same directory and skip residual-image and contrast-curve construction. Raw contrast does not receive the visualization flag and retains its normal behavior.
+
+| Algorithm | FITS output | Saved frame |
+|---|---|---|
+| `CADI` | `cADI.fits` | The temporal mean or median selected by `subtraction` |
+| `PCAD` | `PCA_component_001.fits`, ... | Every fitted PCA component up to the largest requested component number |
+
+For each dataset, the complete output directory is:
+
+```text
+{fake_planet.path}/{experiment.name}/{file_name}{extrasubname}/scratch/tensorboard_pca/Noise_frames/
+```
+
+`fake_planet.path` is resolved relative to the directory from which the pipeline is launched. For example, launching from `src/pipeline_ADI` with `path: results/fake_planets` writes under `src/pipeline_ADI/results/fake_planets/`. The internal class option corresponding to the configuration flag is `noise_visualise`; direct class users must also provide `work_dir`.
 
 
 ### PCAD in detail (high-level)
@@ -249,6 +273,7 @@ Steps:
 | `{fake_planet.path}/{experiment.name}/{file_name}{extrasubname}/` | Checkpoints and residuals |
 | `{contrast.path}/{experiment.name}/{arcsec}_{windspeed}_{key}/` | Plots and grid animations |
 | `{contrast.path}/{experiment.name}/overall_best.h5` | Best analytical curves (if `save_best`) |
+| `{fake_planet.path}/{experiment.name}/{file_name}{extrasubname}/scratch/tensorboard_pca/Noise_frames/` | Optional `cADI.fits` and PCA component FITS images (`fake_planet.visualisation: true`) |
 
 ## Configuration keys used
 
@@ -256,7 +281,7 @@ Steps:
 - `instrument`: `dit_science`, `dit_psf`, `radius_psf`, `radius_sc`, `dit_factor`, `science_frames`, `psf_factor`, `pixel_size`
 - `datasets.<name>`: `enabled`, `science_file` (str or list), optional `psf_file`, `dit_science`, `dit_psf`, `psf_factor` (dataset values override instrument values)
 - `algorithms.<name>`: boolean flags
-- `fake_planet`: `flux_ratio_mag` (scalar or list), `num_fake_planets`, `components`, `separation`, `max_separation`, `path`, `device`, `scaling_factor`, `angle_file` or `angle_start`/`angle_end`
+- `fake_planet`: `flux_ratio_mag` (scalar or list), `num_fake_planets`, `components`, `separation`, `max_separation`, `path`, `device`, `scaling_factor`, `visualisation` (default `false`), `angle_file` or `angle_start`/`angle_end`
 - `contrast`: `enabled`, `raw_contrasts`, `photometry`, `test`, `range_constrast_y`, `path`, `save_best`
 
 ## Requirements
@@ -283,5 +308,5 @@ Steps:
 Everything in `contrast_pipeline/` is built on applefy (`Contrast`, `DataReductionInterface`, fake-planet injection, photometry, statistics) and fours (`FieldRotationModel`, `adi_tools`). The parts that differ from those libraries are:
 
 - **Raw contrast (`raw_contrast_utils.py`, new).** `RawContrastReductionGPU` performs no star-light subtraction at all: frames are derotated with the fours `FieldRotationModel` and mean-combined on the GPU. It gives the unsubtracted noise baseline that neither library provides.
-- **cADI subtraction parameter (`cadi_utils.py`, adapted from `fours.utils.adi_tools`).** fours only subtracts the temporal median. The adapted `cadi_psf_subtraction` / `cadi_psf_subtraction_gpu` add a `subtraction` argument (`mean`, default, or `median`) next to `combine`, and the `CADIDataReduction` / `CADIDataReductionGPU` wrappers take both as optional arguments, forwarding them only when they are not `None`. The GPU version also uses `torch.median(..., dim=0).values` and `torch.mean(..., dim=0)` instead of the original `axis` calls.
-- **PCA options (`pca_utils.py`).** The PCA reduction is a GPU implementation combining several approaches rather than the fours/applefy PCA: selectable `pca_method` (`auto`, `svd`, `gram`, `lowrank`), with `niter`, `eps`, `approx_svd_trunc`, `oversample` and `gram_threshold` to tune the auto-selection and the low-rank approximation, components computed once for the largest requested number, `combine` (`mean` or `median`, with an extra temporal-median subtraction in the median case), `subsample_rotation_grid`, and tensorboard logging to `work_dir`.
+- **cADI subtraction parameter (`cadi_utils.py`, adapted from `fours.utils.adi_tools`).** fours only subtracts the temporal median. The adapted `cadi_psf_subtraction` / `cadi_psf_subtraction_gpu` add a `subtraction` argument (`mean`, default, or `median`) next to `combine`, and the `CADIDataReduction` / `CADIDataReductionGPU` wrappers take both as optional arguments, forwarding them only when they are not `None`. The GPU version also uses `torch.median(..., dim=0).values` and `torch.mean(..., dim=0)` instead of the original `axis` calls. With `fake_planet.visualisation: true`, the pipeline saves this temporal mean or median as `Noise_frames/cADI.fits` and skips residual processing.
+- **PCA options (`pca_utils.py`).** The PCA reduction is a GPU implementation combining several approaches rather than the fours/applefy PCA: selectable `pca_method` (`auto`, `svd`, `gram`, `lowrank`), with `niter`, `eps`, `approx_svd_trunc`, `oversample` and `gram_threshold` to tune the auto-selection and the low-rank approximation, components computed once for the largest requested number, `combine` (`mean` or `median`, with an extra temporal-median subtraction in the median case), `subsample_rotation_grid`, and tensorboard logging to `work_dir`. With `fake_planet.visualisation: true`, the pipeline writes the fitted components to the shared `Noise_frames/` directory.

@@ -270,6 +270,7 @@ def run_pipeline(config):
     inst = config["instrument"]
     fp = config["fake_planet"]
     cnst = config["contrast"]
+    visualisation = fp["visualisation"]
     exp = config["experiment"]["name"]
     ori_folder = config["experiment"]["ori_folder"]
     algorithms = {k: k for k, enabled in config["algorithms"].items() if enabled}
@@ -395,6 +396,7 @@ def run_pipeline(config):
             separations=seps,
             algo_name=first_algo,
             angles=angles,
+            visualisation=visualisation,
         )
 
         # 2.4) Run the remaining algorithms
@@ -411,9 +413,19 @@ def run_pipeline(config):
                 separations=seps,
                 algo_name=algo_name,
                 angles=angles,
+                visualisation=visualisation,
             )
 
             contrast_instance.results_dict.update(old_results)
+
+        if visualisation and any(
+            name in {"CADI", "PCAD"} for name in algorithms
+        ):
+            print(
+                "Noise-frame visualisation complete. "
+                "Skipping contrast-curve calculation."
+            )
+            continue
 
         # 2.6) Compute contrast curves if enabled
         if cnst["enabled"]:
