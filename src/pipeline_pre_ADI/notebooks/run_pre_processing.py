@@ -59,7 +59,9 @@ if start_over == True:
 if not os.path.exists(save_data_path):
     os.makedirs(save_data_path)
 
-save_analysis_path = "/home/aosimul/noah/src/pipeline_pre_ADI/results/long_7ro_20ws_focus"
+save_analysis_path = (
+    "/home/aosimul/noah/src/pipeline_pre_ADI/results/long_7ro_20ws_focus"
+)
 ori_folder = "/home/aosimul/noah/data/ghost_images/phase_screens_SLM/10_10/"
 
 if not os.path.exists(save_analysis_path):
@@ -174,7 +176,7 @@ for i, img_file in enumerate(img_files[:]):
     diff = np.mean(sci_img_processed, axis=0) - mean_sci_img_processed_no_outlier
     diffs_outliers_imgs[filename.split(".npy")[0]] = diff
 
-    if compute_raw_contrast==True:
+    if compute_raw_contrast == True:
         pixel_rad, y_noncoro, _ = radial_profile_pre(mean_sci_img_processed_no_outlier)
         raw_contrast_amplitude = (
             norm_const_1 / norm_const_2 / norm_const_uncorelated * DIT_psf / DIT_img
@@ -257,7 +259,9 @@ for i, img_file in enumerate(img_files[:]):
             ),
         )
         raw_contrast.to_hdf(
-            f"{save_analysis_path}/raw_contrast.h5", key=filename.split(".n")[0], mode="a"
+            f"{save_analysis_path}/raw_contrast.h5",
+            key=filename.split(".n")[0],
+            mode="a",
         )
 
     plt.close("all")
@@ -281,4 +285,3 @@ with h5py.File(f"{save_analysis_path}/outlier_diff.h5", "a") as f:
         if key in f:
             del f[key]
         f.create_dataset(key, data=value)
-

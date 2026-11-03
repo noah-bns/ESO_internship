@@ -5,6 +5,7 @@ Layout (each block only depends on the ones above it):
     2. Parsing   - split/reorder arbitrary name strings, make plot titles
     3. Loading   - read stacks, raw .tif files and contrast tables
 """
+
 import glob
 import re
 from pathlib import Path
@@ -44,8 +45,12 @@ def iter_runs(ros, wss, keys=(None,), counts=(None,)):
 # 2. Parsing / reordering / titling
 # ----------------------------------------------------------------------------
 
-_PRIORITIES = {"int": "Integrative AO:", "pred": "Predictive AO:",
-               "OL": "Open Loop:", "CL": "Closed Loop:"}
+_PRIORITIES = {
+    "int": "Integrative AO:",
+    "pred": "Predictive AO:",
+    "OL": "Open Loop:",
+    "CL": "Closed Loop:",
+}
 _RO_RE = re.compile(r"(\d*\.?\d+)(?:r0|ro)")
 _WS_RE = re.compile(r"(\d+)(?:windspeed|ws)")
 _KEY_RE = re.compile(r"(?:(\d+)key|key(\d+))")

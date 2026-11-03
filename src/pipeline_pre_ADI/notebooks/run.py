@@ -100,7 +100,8 @@ def collect_files(cfg: Config) -> tuple[list[str], list[str]]:
     files = sorted(glob.glob(str(cfg.input_dir / sel["glob"])))
     name = lambda f: Path(f).name
     img_files = [
-        f for f in files
+        f
+        for f in files
         if sel["science_contains"] in name(f) and sel["science_excludes"] not in name(f)
     ]
     psf_files = [f for f in files if sel["psf_contains"] in name(f)]
@@ -110,7 +111,9 @@ def collect_files(cfg: Config) -> tuple[list[str], list[str]]:
     return img_files, psf_files
 
 
-def unique_name(path: str, root_counts: Counter, running: Counter, prefix: str = "") -> str:
+def unique_name(
+    path: str, root_counts: Counter, running: Counter, prefix: str = ""
+) -> str:
     """Return the output stem; add a running index when a root occurs several times."""
     _, root, _ = reorder_name(Path(path).name)
     if root_counts[root] > 1:
@@ -148,7 +151,11 @@ def compute_uncorrelated_psf(cfg: Config):
 
 
 def process_science(cfg: Config, img_file: str, stem: str, outlier_mask):
-    pre, sci, od = cfg["preprocessing"], cfg["preprocessing"]["science"], cfg["outlier_detection"]
+    pre, sci, od = (
+        cfg["preprocessing"],
+        cfg["preprocessing"]["science"],
+        cfg["outlier_detection"],
+    )
     processed, norm_1, speckle_intensity = run_pre_processing(
         img_file=input_path(cfg, Path(img_file).stem),
         img_key=sci["img_key"],
@@ -199,10 +206,16 @@ def save_raw_contrast(cfg, stem, mean_clean, fwhm, norm_1, norm_2, norm_uncorr):
     t = cfg["timing"]
     pixel_rad, y_noncoro, _ = radial_profile_pre(mean_clean)
     amplitude = norm_1 / norm_2 / norm_uncorr * t["dit_psf"] / t["dit_img"]
-    rad_fwhm = pixel_rad / fwhm if fwhm is not None else np.full_like(pixel_rad, np.nan, dtype=float)
+    rad_fwhm = (
+        pixel_rad / fwhm
+        if fwhm is not None
+        else np.full_like(pixel_rad, np.nan, dtype=float)
+    )
     df = pd.DataFrame(
         {"raw_contrast": amplitude * y_noncoro},
-        index=pd.MultiIndex.from_arrays([pixel_rad, rad_fwhm], names=["pixel_rad", "pixel_rad_fwhm"]),
+        index=pd.MultiIndex.from_arrays(
+            [pixel_rad, rad_fwhm], names=["pixel_rad", "pixel_rad_fwhm"]
+        ),
     )
     df.to_hdf(cfg.analysis_dir / cfg["outputs"]["raw_contrast"], key=stem, mode="a")
 
@@ -241,7 +254,9 @@ def stack_repeats(cfg: Config) -> None:
             # verify before deleting anything
             expected = sum(a.shape[0] for a in arrays)
             if np.load(out_file, mmap_mode="r").shape[0] != expected:
-                raise RuntimeError(f"Verification failed for {out_file}; originals kept")
+                raise RuntimeError(
+                    f"Verification failed for {out_file}; originals kept"
+                )
             log.info("Saved %s: shape %s", out_file.name, stacked.shape)
 
             if st["delete_originals"]:
@@ -274,7 +289,9 @@ def run(cfg: Config) -> None:
     img_counter, psf_counter = Counter(), Counter()
 
     g = cfg["geometry"]
-    outlier_mask = CircularAperture((g["radius"], g["radius"]), g["mask_radius"]).to_mask(method="center")
+    outlier_mask = CircularAperture(
+        (g["radius"], g["radius"]), g["mask_radius"]
+    ).to_mask(method="center")
 
     raw_contrast = cfg["modes"]["compute_raw_contrast"]
     norm_uncorr = compute_uncorrelated_psf(cfg) if raw_contrast else None
@@ -295,7 +312,9 @@ def run(cfg: Config) -> None:
         # Matching PSF (every N-th science image)
         if psf_files and i % every_n == 0 and psf_count < len(psf_files):
             psf_file = psf_files[psf_count]
-            psf_stem = unique_name(psf_file, psf_root_counts, psf_counter, prefix="psf_")
+            psf_stem = unique_name(
+                psf_file, psf_root_counts, psf_counter, prefix="psf_"
+            )
             fwhm = process_psf(cfg, psf_file, psf_stem)
             psf_count += 1
 
@@ -313,13 +332,22 @@ def run(cfg: Config) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                        help="override a config value, e.g. modes.save_outputs=false")
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override a config value, e.g. modes.save_outputs=false",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     cfg = load_config(args.config, args.set)
     cfg.analysis_dir.mkdir(parents=True, exist_ok=True)
     # keep a copy of the exact config next to the results for reproducibility

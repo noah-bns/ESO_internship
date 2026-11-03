@@ -354,13 +354,13 @@ def center_stack(
 
 
 def crop_stack(
-            stack,
-            aligning_center,
-            radius: Optional[int] = None,
-    ):
-    
+    stack,
+    aligning_center,
+    radius: Optional[int] = None,
+):
+
     ny, nx = stack.shape[1:]
-    (yc, xc) = aligning_center
+    yc, xc = aligning_center
     center_y = int(np.floor(float(yc) + 0.5))
     center_x = int(np.floor(float(xc) + 0.5))
 
@@ -404,10 +404,9 @@ def run_pre_processing(
     tol=1e-2,
     eps=1e-9,
 ):
-
-    '''
+    """
     Run pre-processing on a stack of images.
-    
+
     Parameters:
     - img_file: str, path to the image file (prefix for .tif files
     - masking_function: callable, function to apply a mask to the images
@@ -424,9 +423,9 @@ def run_pre_processing(
     - n_satellites: int, optional, number of satellite speckles for 'waffle' method
     - upsample_factor: int, optional, upsampling factor for centering
     - max_iter: int, optional, maximum iterations for centering
-    - tol: float, optional, tolerance for centering 
+    - tol: float, optional, tolerance for centering
     - eps: float, optional, small value to avoid division by zero during normalisation
-    '''
+    """
     sci_img = tiff.imread(
         glob.glob(f"{img_file}*.tif"),
         # key=slice(0, img_key) if img_key else None
@@ -459,22 +458,25 @@ def run_pre_processing(
         sci_img_centered = sci_img_centered - master_df
 
     # extract the speckle value
-    median = np.median(sci_img_centered, axis = 0)
+    median = np.median(sci_img_centered, axis=0)
     zoom = rect_aperture_mask(median, 102, 172, size=20)
     speckle_intensity = np.max(zoom)
 
-    #crop
-    sci_img_cropped = crop_stack(sci_img_centered, aligning_center=(yc, xc), radius=radius)
+    # crop
+    sci_img_cropped = crop_stack(
+        sci_img_centered, aligning_center=(yc, xc), radius=radius
+    )
 
-
-    #normalisation:
-    sci_img_cropped = np.maximum(sci_img_cropped, eps) #Make sure every pixel is at least a tiny positive value
+    # normalisation:
+    sci_img_cropped = np.maximum(
+        sci_img_cropped, eps
+    )  # Make sure every pixel is at least a tiny positive value
     sci_img_processed = sci_img_cropped.astype(np.float32)
 
     normalisation_cnst = 1
 
     if normalisation == True:
-        normalisation_cnst = np.max(sci_img_processed) 
+        normalisation_cnst = np.max(sci_img_processed)
     sci_img_processed_norm = sci_img_processed / normalisation_cnst
 
     return sci_img_processed_norm, normalisation_cnst, speckle_intensity

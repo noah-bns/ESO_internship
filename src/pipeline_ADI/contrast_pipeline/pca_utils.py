@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import gc
 import time
+from astropy.io import fits
 from typing import Tuple, Callable
 from typing import List, Dict, Union
 from datetime import datetime
@@ -11,6 +12,34 @@ import time
 from fours.models.rotation import FieldRotationModel
 from applefy.detections.contrast import DataReductionInterface, Path
 from fours.utils.pca import pca_tensorboard_logging
+
+
+def pca_fits_logging(
+    log_dir: Union[str, Path],
+    pca_components: torch.Tensor,
+    image_shape: Tuple[int, int],
+) -> None:
+    """Write each PCA component as a two-dimensional FITS image."""
+
+    noise_frames_dir = Path(log_dir) / "Noise_frames"
+    noise_frames_dir.mkdir(exist_ok=True, parents=True)
+
+    noise_frames = (
+        pca_components.detach()
+        .cpu()
+        .numpy()
+        .reshape(-1, *image_shape)
+    )
+
+    for component_number, pca_frame in enumerate(noise_frames, start=1):
+        header = fits.Header()
+        header["PCANUM"] = (component_number, "PCA component number")
+        fits.writeto(
+            noise_frames_dir / f"PCA_component_{component_number:03d}.fits",
+            data=pca_frame,
+            header=header,
+            overwrite=True,
+        )
 
 
 def _get_pca_fitter(
@@ -167,7 +196,9 @@ def pca_psf_subtraction_gpu(
     verbose: bool = False,
     combine: str = "mean",
     dtype: torch.dtype = torch.float32,
-) -> np.ndarray:
+    noise_visualise: bool = False,
+    pca_visualisation_dir: Union[str, Path, None] = None,
+) -> Union[np.ndarray, None]:
     """
     PCA-based PSF subtraction using different PCA methods.
 
@@ -203,11 +234,18 @@ def pca_psf_subtraction_gpu(
         Combination method: "mean" or "median"
     dtype : torch.dtype
         Data type for tensors
+    noise_visualise : bool
+        If True, save the fitted PCA components as FITS images and skip the
+        PSF-subtraction calculation.
+    pca_visualisation_dir : str or Path, optional
+        Parent output directory. A ``noise_frames`` subdirectory is created
+        here when ``noise_visualise`` is True.
 
     Returns
     -------
-    np.ndarray
-        Residual images with shape (len(pca_numbers), height, width)
+    np.ndarray or None
+        Residual images with shape (len(pca_numbers), height, width), or None
+        when ``noise_visualise`` is True.
     """
 
     if device == "auto":
@@ -293,6 +331,20 @@ def pca_psf_subtraction_gpu(
 
         if verbose:
             print(f"[DONE] (method: {method_used})")
+
+        if noise_visualise:
+            if pca_visualisation_dir is None:
+                raise ValueError(
+                    "pca_visualisation_dir must be provided when "
+                    "noise_visualise=True."
+                )
+
+            pca_fits_logging(
+                log_dir=pca_visualisation_dir,
+                pca_components=components[:max_components],
+                image_shape=(height, width),
+            )
+            return None
 
         t2 = time.perf_counter()
         # print(f"[Timing] Compute PCA Basis: {t2 - t1:.6f}s")
@@ -390,6 +442,7 @@ class PCADataReductionGPU(DataReductionInterface):
         subsample_rotation_grid: int = 1,
         combine: str = "mean",
         verbose: bool = False,
+        noise_visualise: bool = False,
     ):
         """
         Initialize PCA Data Reduction.
@@ -424,6 +477,9 @@ class PCADataReductionGPU(DataReductionInterface):
             Combination method: "mean" or "median"
         verbose : bool
             Print progress
+        noise_visualise : bool
+            Save PCA component frames as FITS files instead of calculating
+            and returning residual images. Requires ``work_dir``.
         """
         self.pca_numbers = pca_numbers
         self.device = device
@@ -437,6 +493,7 @@ class PCADataReductionGPU(DataReductionInterface):
         self.subsample_rotation_grid = subsample_rotation_grid
         self.combine = combine
         self.verbose = verbose
+        self.noise_visualise = noise_visualise
 
         self.work_dir = Path(work_dir) if work_dir is not None else None
         self.special_name = special_name if special_name is not None else ""
@@ -457,7 +514,7 @@ class PCADataReductionGPU(DataReductionInterface):
         parang_rad: np.ndarray,
         psf_template: np.ndarray,
         exp_id: str,
-    ) -> Dict[str, np.ndarray]:
+    ) -> Union[Dict[str, np.ndarray], None]:
         """
         Execute PCA reduction.
 
@@ -474,9 +531,16 @@ class PCADataReductionGPU(DataReductionInterface):
 
         Returns
         -------
-        dict
-            Dictionary with PCA residuals for each component count
+        dict or None
+            Dictionary with PCA residuals for each component count, or None
+            after exporting component frames in visualization mode.
         """
+        if self.noise_visualise:
+            if self.work_dir is None:
+                raise ValueError(
+                    "work_dir must be provided when noise_visualise=True."
+                )
+
         # Call the new PCA function
         pca_residuals = pca_psf_subtraction_gpu(
             images=stack_with_fake_planet,
@@ -491,7 +555,12 @@ class PCADataReductionGPU(DataReductionInterface):
             subsample_rotation_grid=self.subsample_rotation_grid,
             verbose=self.verbose,
             combine=self.combine,
+            noise_visualise=self.noise_visualise,
+            pca_visualisation_dir=self.work_dir,
         )
+
+        if self.noise_visualise:
+            return {}
 
         if self.work_dir is not None:
             time_str = datetime.now().strftime("%Y-%m-%d-%Hh%Mm%Ss")

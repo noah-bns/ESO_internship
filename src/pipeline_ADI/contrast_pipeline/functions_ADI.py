@@ -19,7 +19,6 @@ from astropy.modeling import models, fitting
 from PIL import Image, ImageDraw
 import matplotlib.gridspec as gridspec
 
-
 # scientific libraries
 from applefy.utils import flux_ratio2mag, mag2flux_ratio
 from applefy.utils.photometry import AperturePhotometryMode
@@ -29,11 +28,13 @@ from applefy.statistics import (
     fpf_2_gaussian_sigma,
     LaplaceBootstrapTest,
 )
-from fours.detection_limits.applefy_wrapper import (
-    CADIDataReductionGPU,
-)  # , PCADataReductionGPU
+
+# from fours.detection_limits.applefy_wrapper import (
+#     #CADIDataReductionGPU,
+# )  # , PCADataReductionGPU
 from .pca_utils import PCADataReductionGPU
-from .raw_contrast import RawContrastReductionGPU
+from .raw_contrast_utils import RawContrastReductionGPU
+from .cadi_utils import CADIDataReductionGPU
 from .plotting import *
 from utils.statistics import calculate_fwhm
 from applefy.detections.contrast import Contrast
@@ -91,6 +92,7 @@ def fake_planet_experiment(
     separations: np.ndarray,
     algo_name: str,
     angles: np.ndarray,
+    visualisation: bool = False,
     # grid: bool
 ) -> object:
     """
@@ -110,6 +112,10 @@ def fake_planet_experiment(
         Algorithm version ('PCAD', 'CADI', etc.).
     angles : np.ndarray
         Position angles in degrees.
+    visualisation : bool
+        If True, PCA and cADI save their fitted noise frames once from the
+        original science sequence instead of producing residual images for
+        every fake-planet experiment. Raw contrast is unaffected.
 
     Returns
     -------
@@ -152,11 +158,12 @@ def fake_planet_experiment(
     #     )
 
     # num_parallel = cpu_count()//2
-
-    if algo_name == "PCAD":
-
+    if visualisation:
+        work_dir = contrast_instance.residual_dir
+    else:
         work_dir = contrast_instance.scratch_dir / Path("tensorboard_pca")
 
+    if algo_name == "PCAD":
         algorithm_function = PCADataReductionGPU(
             pca_numbers=fp_config["components"],
             device=fp_config["device"],
@@ -168,11 +175,18 @@ def fake_planet_experiment(
             approx_svd_trunc=fp_config["approx_svd_trunc"],
             subsample_rotation_grid=fp_config["subsample_rotation_grid"],
             combine=fp_config["combine"],
+            noise_visualise=visualisation,
         )
 
     if algo_name == "CADI":
 
-        algorithm_function = CADIDataReductionGPU(device=fp_config["device"])
+        algorithm_function = CADIDataReductionGPU(
+            device=fp_config["device"],
+            subtraction=fp_config.get("subtraction"),
+            combine=fp_config.get("combine"),
+            work_dir=work_dir,
+            noise_visualise=visualisation,
+        )
 
     # try:
     #     contrast_instance.run_fake_planet_experiments(
@@ -184,6 +198,19 @@ def fake_planet_experiment(
     if algo_name == "raw_contrast":
 
         algorithm_function = RawContrastReductionGPU(device=fp_config["device"])
+
+    if visualisation and algo_name != "raw_contrast":
+        algorithm_function(
+            stack_with_fake_planet=dataset["sci_img"],
+            parang_rad=angles,
+            psf_template=dataset["psf"],
+            exp_id="visualisation",
+        )
+
+        if contrast_instance.results_dict is None:
+            contrast_instance.results_dict = {}
+
+        return contrast_instance
 
     num_parallel = 1
     contrast_instance.run_fake_planet_experiments(
